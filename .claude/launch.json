@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": ".venv/Scripts/python",
+      "runtimeArgs": ["main.py", "web", "configs/config.local.yaml"],
+      "port": 8080
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}job-bless{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">job<span>-bless</span></a>
+  <nav>
+    <a href="/" class="{{ 'active' if path == '/' }}">Обзор</a>
+    <a href="/vacancies" class="{{ 'active' if path == '/vacancies' }}">Вакансии</a>
+    <a href="/applications" class="{{ 'active' if path == '/applications' }}">Отклики</a>
+    <a href="/resume" class="{{ 'active' if path == '/resume' }}">Резюме</a>
+    <a href="/runs" class="{{ 'active' if path == '/runs' }}">Прогоны</a>
+    <a href="/settings" class="{{ 'active' if path == '/settings' }}">Настройки</a>
+  </nav>
+</header>
+
+<main>
+  {% include "partials/task_panel.html" %}
+  {% block content %}{% endblock %}
+</main>
+
+<section class="console" id="console-block">
+  <div class="console-head">
+    <span>Журнал текущей задачи</span>
+    <button type="button" class="link" onclick="document.getElementById('log').textContent=''">очистить</button>
+  </div>
+  <pre id="log">{% if current_task %}{{ current_task.logs | join('\n') }}{% endif %}</pre>
+</section>
+
+<script src="/static/app.js?v={{ static_version }}" defer></script>
+</body>
+</html>

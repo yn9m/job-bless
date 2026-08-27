@@ -1,0 +1,87 @@
+app:
+  isProduction: false
+  address: ":8080"
+
+log:
+  level: "info"
+  encoding: "json"
+
+browser:
+  provider: "local_process" # local_process | docker | external
+  transport: "cdp" # playwright | cdp
+  headless: false # false = видимое окно браузера, true = фоновый режим
+
+  local_process:
+    command: "chrome"
+    args:
+      - "--remote-debugging-port=9222"
+      - "--user-data-dir=./data/browser-profile"
+      - "--new-window"
+      - "--start-maximized"
+      - "https://hh.ru"
+
+  docker:
+    image: "browser-image:latest"
+    container_name: "career-browser"
+
+  external:
+    enabled: false
+
+  playwright:
+    endpoint: "ws://localhost:3000"
+    browser_type: "chromium"
+
+  cdp:
+    endpoint: "http://localhost:9222"
+
+postgres:
+  driver: "sqlite" # postgres | sqlite
+  sqlite_path: "./data/career_agent.db"
+  host: "localhost"
+  port: "5432"
+  username: "postgres"
+  password: "password"
+  dbname: "job_bless_db"
+  sslmode: "disable"
+
+web:
+  host: "127.0.0.1"
+  port: 8080
+  token: "" # пусто = без авторизации; задайте при доступе не с localhost
+
+llm:
+  enabled: false
+  standard: "openai" # openai | gemini | anthropic — выбор стандарта API
+  base_url: "http://localhost:7860" # AIStudioToAPI мост
+  api_key: "" # или переменная окружения LLM_API_KEY
+  model: "gemini-2.5-flash-lite"
+  embedding_model: "gemini-embedding-001"
+  temperature: 0.7
+  max_tokens: 2048
+  timeout_sec: 120
+  max_retries: 3
+  retry_backoff_sec: 1.0
+  gemini_api_version: "v1beta" # только для standard: gemini
+  anthropic_version: "2023-06-01" # только для standard: anthropic
+
+  modifiers:
+    thinking: "" # minimal | low | medium | high
+    stream_mode: "" # real | fake
+    search: false
+    code: false
+
+
+
+applier:
+  resume_path: "./data/resume.txt"
+  min_llm_score: 7
+
+hh_autoscroller:
+  search_url: "https://hh.ru/search/vacancy?text=Python"
+  scroll_step_min: 350
+  scroll_step_max: 650
+  scroll_pause_min: "200ms"
+  scroll_pause_max: "600ms"
+  page_timeout: "30s"
+  max_scroll_steps_per_page: 200
+  stable_cycles: 3

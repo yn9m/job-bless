@@ -1,0 +1,96 @@
+<div class="panel" id="task-panel" hx-target="#task-panel" hx-swap="outerHTML">
+  <form class="runner" hx-post="/actions/start">
+    <div class="runner-options" id="runner-options">
+      {% set options = [
+        ('collect',  'Собрать вакансии', 'Пройти по страницам поиска и сохранить карточки'),
+        ('score',    'Оценить соответствие', 'Сравнить собранные вакансии с активным резюме'),
+        ('apply',    'Откликнуться по порогу', 'Отклик на всё выше порога соответствия'),
+        ('pipeline', 'Полный цикл', 'Сбор → оценка → отклики (по настройкам)'),
+        ('resume_touch', 'Обновить резюме', 'Поднять резюме в поиске hh.ru'),
+        ('profile', 'Собрать профиль', 'Пересобрать профиль кандидата из резюме и контекста'),
+        ('login',    'Войти в hh.ru', 'Открыть окно Chrome для входа в аккаунт')
+      ] %}
+      {% for value, label, hint in options %}
+        <label class="runner-option" title="{{ hint }}">
+          <input type="radio" name="kind" value="{{ value }}" {{ 'checked' if loop.first }}>
+          <span>{{ label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+
+    <div class="runner-controls">
+      <button type="submit" class="primary" {{ 'disabled' if tasks.is_busy }}>Старт</button>
+      <button type="button" class="danger" hx-post="/actions/stop"
+              {{ '' if tasks.is_busy else 'disabled' }}>
+        {{ 'Остановить принудительно' if tasks.stop_requested and tasks.is_busy else 'Стоп' }}
+      </button>
+      <span class="llm-slot">
+        {% with compact = true, initial = true %}{% include "partials/llm_status.html" %}{% endwith %}
+      </span>
+    </div>
+  </form>
+
+  {# Activity is a separate module in its own lane: it can run while the main
+     job collects or applies, so it gets its own controls. #}
+  <div class="lane-activity">
+    <span class="lane-label">Имитация активности</span>
+    {% if activity_task and activity_task.as_dict().is_running %}
+      {% set a = activity_task.as_dict() %}
+      <span class="badge running">идёт</span>
+      <span class="muted small">{{ a.message or '—' }}</span>
+      {% if a.total %}<span class="muted small">{{ a.percent }}%</span>{% endif %}
+      <button type="button" class="danger" hx-post="/actions/stop" hx-vals='{"lane": "activity"}'>
+        Остановить
+      </button>
+    {% else %}
+      <span class="muted small">
+        {% if activity_task %}
+          прошлый прогон: {{ activity_task.as_dict().status }}
+        {% else %}
+          не запущена
+        {% endif %}
+      </span>
+      <button type="button" hx-post="/actions/activity">Запустить параллельно</button>
+    {% endif %}
+  </div>
+
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+  {% if current_task %}
+    {% set t = current_task.as_dict() %}
+    <div class="task-status {{ t.status }}">
+      <div class="task-line">
+        <strong>{{ t.kind }}</strong>
+        <span class="badge {{ t.status }}">{{ t.status }}</span>
+        {% if t.trigger == 'schedule' %}<span class="badge">по расписанию</span>{% endif %}
+        <span class="task-message" id="task-message">{{ t.message or '—' }}</span>
+      </div>
+      {% if t.total %}
+        <div class="progress"><div class="bar" id="task-bar" style="width: {{ t.percent }}%"></div></div>
+        <div class="muted" id="task-counter">{{ t.done }} / {{ t.total }}</div>
+      {% endif %}
+      {% if t.awaiting_confirmation %}
+        <div class="confirm-box">
+          <span>Войдите в аккаунт в открывшемся окне Chrome, затем подтвердите:</span>
+          <button type="button" hx-post="/actions/confirm" class="primary">Я вошёл</button>
+        </div>
+      {% endif %}
+      {% if t.error_message %}<p class="error">{{ t.error_message }}</p>{% endif %}
+    </div>
+  {% else %}
+    <div class="task-status idle"><span class="muted">Задача не запущена</span></div>
+  {% endif %}
+
+  <div class="schedule-note muted">
+    {% set cycles = scheduler.status() | selectattr('enabled') | list %}
+    {% if cycles %}
+      Расписание:
+      {% for cycle in cycles %}
+        {{ cycle.title }} — каждые {{ cycle.interval_minutes }} мин
+        (следующий {{ cycle.next_run_at | short_dt }}){{ '; ' if not loop.last }}
+      {% endfor %}
+    {% else %}
+      Расписание выключено
+    {% endif %}
+  </div>
+</div>

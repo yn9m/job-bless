@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Резюме — job-bless{% endblock %}
+
+{% block content %}
+<section class="block">
+  <h2>Импорт резюме с hh.ru</h2>
+  <p class="muted">
+    Вставьте ссылку на своё резюме вида <code>https://hh.ru/resume/&lt;id&gt;</code>.
+    Резюме откроется в вашем залогиненном Chrome, распарсится и сохранится в базу —
+    именно с ним будут сравниваться вакансии.
+  </p>
+  <form method="post" action="/actions/resume/import" class="inline-form">
+    <input type="url" name="resume_url" placeholder="https://hh.ru/resume/..." required
+           pattern="https?://.*(hh\.ru|hh\.kz|hh\.uz|rabota\.by)/resume/.+">
+    <button type="submit" class="primary" {{ 'disabled' if tasks.is_busy }}>Импортировать</button>
+  </form>
+  <p class="muted small">
+    Нужен активный вход в hh.ru — если резюме не открывается, нажмите «Войти в hh.ru» на панели сверху.
+  </p>
+</section>
+
+<section class="block">
+  <h2>Сохранённые резюме</h2>
+  {% for resume in resumes %}
+    <div class="resume-card {{ 'active' if resume.is_active }}">
+      <div class="resume-head">
+        <div>
+          <span class="strong">{{ resume.title or resume.full_name or 'Без названия' }}</span>
+          {% if resume.is_active %}<span class="badge completed">активное</span>{% endif %}
+        </div>
+        <div class="resume-actions">
+          {% if not resume.is_active %}
+            <form method="post" action="/actions/resume/{{ resume.id }}/activate">
+              <button type="submit">Сделать активным</button>
+            </form>
+          {% endif %}
+          <form method="post" action="/actions/resume/{{ resume.id }}/delete"
+                onsubmit="return confirm('Удалить это резюме? Оценки вакансий по нему тоже удалятся.')">
+            <button type="submit" class="danger">Удалить</button>
+          </form>
+        </div>
+      </div>
+      <p class="muted">
+        {{ resume.city }}{% if resume.experience_text %} · {{ resume.experience_text }}{% endif %}
+        {% if resume.salary_text %} · {{ resume.salary_text }}{% endif %}
+      </p>
+
+      {# Each resume hunts its own roles and carries its own extra context. #}
+      <form method="post" action="/actions/resume/{{ resume.id }}/update" class="resume-form">
+        <label for="q-{{ resume.id }}">Что искать по этому резюме</label>
+        <input type="text" id="q-{{ resume.id }}" name="search_query" value="{{ resume.search_query }}"
+               placeholder="например: Python разработчик">
+
+        <label for="c-{{ resume.id }}">Расскажите про свой опыт</label>
+        <textarea id="c-{{ resume.id }}" name="context_text" rows="8"
+                  placeholder="Всё, чего нет в резюме: проекты, детали задач, чем гордитесь, чего не хотите. Объём не ограничен — этот текст идёт в профиль кандидата.">{{ resume.context_text }}</textarea>
+        <small class="muted">
+          Из резюме и этого текста собирается профиль кандидата — его используют оценка
+          вакансий, сопроводительные письма и ответы на вопросы работодателя.
+        </small>
+
+        <div class="resume-form-actions">
+          <button type="submit" class="primary">Сохранить</button>
+        </div>
+      </form>
+
+      <div class="profile-block">
+        {% if resume.profile_summary %}
+          <div class="profile-head">
+            <span class="badge {{ 'cancelled' if resume.profile_is_stale else 'completed' }}">
+              профиль {{ 'устарел' if resume.profile_is_stale else 'актуален' }}
+            </span>
+            <span class="muted small">
+              {{ resume.profile_summary | length }} символов
+              {% if resume.profile_model %} · {{ resume.profile_model }}{% endif %}
+              {% if resume.profile_updated_at %} · {{ resume.profile_updated_at | short_dt }}{% endif %}
+            </span>
+            {% with button = 'Пересобрать профиль', primary = false %}
+              {% include "partials/profile_form.html" %}
+            {% endwith %}
+          </div>
+          <details>
+            <summary class="link">Показать профиль кандидата</summary>
+            <pre class="raw-text">{{ resume.profile_summary }}</pre>
+          </details>
+        {% else %}
+          <div class="profile-head">
+            <span class="warn small">Профиль не собран — в сравнение уходит сырой текст резюме.</span>
+            {% with button = 'Собрать профиль', primary = true %}
+              {% include "partials/profile_form.html" %}
+            {% endwith %}
+          </div>
+        {% endif %}
+      </div>
+      {% if resume.skills %}
+        <p class="tags">{% for skill in resume.skills %}<span class="tag">{{ skill }}</span>{% endfor %}</p>
+      {% endif %}
+
+      <div class="resume-sections">
+        {% if resume.experience_text %}
+          <details>
+            <summary class="link">Опыт работы ({{ resume.experience_text | length }} символов)</summary>
+            <pre class="raw-text">{{ resume.experience_text }}</pre>
+          </details>
+        {% endif %}
+        {% if resume.education_text %}
+          <details>
+            <summary class="link">Образование</summary>
+            <pre class="raw-text">{{ resume.education_text }}</pre>
+          </details>
+        {% endif %}
+        {% if resume.certificates %}
+          <details>
+            <summary class="link">Сертификаты ({{ resume.certificates | length }})</summary>
+            <ul class="plain-list">
+              {% for certificate in resume.certificates %}<li>{{ certificate }}</li>{% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        {% if resume.summary %}
+          <details>
+            <summary class="link">О себе</summary>
+            <pre class="raw-text">{{ resume.summary }}</pre>
+          </details>
+        {% endif %}
+        <details>
+          <summary class="link">Весь распознанный текст</summary>
+          <pre class="raw-text">{{ resume.raw_text }}</pre>
+        </details>
+      </div>
+
+      <p class="muted small">
+        <a href="{{ resume.source_url }}" target="_blank" rel="noopener">{{ resume.source_url }}</a>
+        · обновлено {{ resume.updated_at | short_dt }}
+        · распознано: навыков {{ resume.skills | length }},
+        сертификатов {{ resume.certificates | length }},
+        текста {{ resume.raw_text | length }} символов
+      </p>
+
+      {% if not resume.skills or not resume.summary %}
+        <p class="warn small">
+          Часть разделов не распозналась — переимпортируйте резюме;
+          если не помогло, разметка hh.ru могла измениться.
+        </p>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">Резюме ещё не импортировано.</p>
+  {% endfor %}
+</section>
+{% endblock %}

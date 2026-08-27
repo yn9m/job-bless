@@ -1,0 +1,25 @@
+app:
+  isProduction: false
+  address: ":8080"
+
+log:
+  level: "debug"
+  encoding: "console"
+
+browser:
+  provider: "docker"
+  transport: "playwright"
+
+  playwright:
+    endpoint: "ws://career-browser-test:3000/camoufox"
+    browser_type: "firefox"
+
+postgres:
+  host: "postgres_test"
+  port: "5432"
+  username: "postgres"
+  password: "password"
+  dbname: "job_bless_db_test"
+  sslmode: "disable"
+
+

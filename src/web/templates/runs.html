@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Прогоны — job-bless{% endblock %}
+
+{% block content %}
+<section class="block">
+  <h2>История прогонов</h2>
+  <table class="wide">
+    <thead>
+      <tr><th>Задача</th><th>Запуск</th><th>Статус</th><th>Начало</th><th>Конец</th><th>Результат</th></tr>
+    </thead>
+    <tbody>
+    {% for run in runs %}
+      <tr>
+        <td>{{ run.kind }}</td>
+        <td>{{ 'по расписанию' if run.trigger == 'schedule' else 'вручную' }}</td>
+        <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+        <td class="nowrap">{{ run.started_at | short_dt }}</td>
+        <td class="nowrap">{{ run.finished_at | short_dt }}</td>
+        <td class="small">
+          {% if run.error_message %}
+            <span class="error-text">{{ run.error_message }}</span>
+          {% else %}
+            <span class="muted">{{ run.result }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Прогонов ещё не было</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

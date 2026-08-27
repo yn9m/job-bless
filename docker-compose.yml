@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: job_bless_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d job_bless_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10 # Увеличено число попыток для первого запуска и инициализации БД
+    networks:
+      - app_network
+
+  browser:
+    build:
+      context: docker/camoufox
+      dockerfile: Dockerfile
+    container_name: career-browser
+    restart: unless-stopped
+    shm_size: '2gb'
+    ports:
+      - "3000:3000"
+      - "6080:6080"
+    volumes:
+      - camoufox-cache:/root/.cache/camoufox
+    networks:
+      - app_network
+
+volumes:
+  pgdata:
+  camoufox-cache:
+
+networks:
+  app_network:
+    driver: bridge

@@ -1,0 +1,29 @@
+{# Model picker: a dropdown built from the endpoint's own model list.
+   Falls back to free text when the list cannot be fetched. #}
+<div class="model-field">
+  {% if models %}
+    <select id="f-{{ field_key }}" name="{{ field_key }}">
+      {% if allow_empty %}
+        <option value="" {{ 'selected' if not current }}>— как для оценки вакансий —</option>
+      {% endif %}
+      {% for model in models %}
+        <option value="{{ model }}" {{ 'selected' if model == current }}>{{ model }}</option>
+      {% endfor %}
+      {% if current and current not in models %}
+        <option value="{{ current }}" selected>{{ current }} — своё значение</option>
+      {% endif %}
+    </select>
+    <button type="button" class="link small"
+            hx-get="/actions/llm-models?force=1&amp;field={{ field_key }}"
+            hx-target="closest .model-field"
+            hx-swap="outerHTML">обновить список</button>
+    <small class="muted">моделей доступно: {{ models | length }}</small>
+  {% else %}
+    <input type="text" id="f-{{ field_key }}" name="{{ field_key }}" value="{{ current }}">
+    <button type="button" class="link small"
+            hx-get="/actions/llm-models?force=1&amp;field={{ field_key }}"
+            hx-target="closest .model-field"
+            hx-swap="outerHTML">получить список</button>
+    <small class="muted">{{ error or 'список моделей недоступен — введите название вручную' }}</small>
+  {% endif %}
+</div>

@@ -1,0 +1,34 @@
+{# Live LLM connectivity lamp.
+
+   `initial` is set only when the lamp is rendered as part of a page: the
+   refreshed copy must NOT carry `load`, otherwise every swap fires a new
+   request and the endpoint is hammered in a tight loop.
+
+   `compact` (top panel) shows just the lamp and the model; the full form
+   (dashboard, settings) also explains the state. #}
+{% set poll = '/actions/llm-health' + ('?compact=1' if compact else '') %}
+<span class="llm-status {{ llm_health.state if llm_health else 'unknown' }}{{ ' compact' if compact }}"
+      hx-get="{{ poll }}"
+      hx-trigger="{% if initial %}load, {% endif %}every {{ poll_seconds }}s"
+      {# explicit: inside the task panel htmx would otherwise inherit
+         hx-target="#task-panel" and the lamp would replace the whole panel #}
+      hx-target="this"
+      hx-swap="outerHTML"
+      title="{% if llm_health %}{{ llm_health.message }}{% if llm_health.detail %} — {{ llm_health.detail }}{% endif %}{% else %}проверяю подключение к нейросети{% endif %}">
+  <span class="lamp"></span>
+
+  {% if compact %}
+    <span class="muted small">{{ llm_health.model if llm_health else 'нейросеть' }}</span>
+  {% elif llm_health %}
+    <span class="llm-text">{{ llm_health.message }}</span>
+    {% if llm_health.ok %}
+      <span class="muted small">{{ llm_health.model }} · {{ llm_health.latency_ms }} мс</span>
+    {% endif %}
+    <button type="button" class="link small"
+            hx-get="{{ poll }}{{ '&' if compact else '?' }}force=1"
+            hx-target="closest .llm-status"
+            hx-swap="outerHTML">проверить</button>
+  {% else %}
+    <span class="llm-text muted">проверяю нейросеть…</span>
+  {% endif %}
+</span>

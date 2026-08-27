@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Настройки — job-bless{% endblock %}
+
+{% macro render_field(field) %}
+  <div class="field {{ 'field-wide' if field.type in ('text', 'str') }}">
+    <label for="f-{{ field.key }}">
+      {{ field.label }}
+      {% if not field.is_default %}<span class="badge small-badge">изменено</span>{% endif %}
+    </label>
+
+    {% if field.type == 'bool' %}
+      <input type="checkbox" id="f-{{ field.key }}" name="{{ field.key }}" value="1"
+             {{ 'checked' if field.value }}>
+    {% elif field.type == 'choice' %}
+      <select id="f-{{ field.key }}" name="{{ field.key }}">
+        {% for choice in field.choices %}
+          <option value="{{ choice }}" {{ 'selected' if field.value == choice }}>{{ choice or '—' }}</option>
+        {% endfor %}
+      </select>
+    {% elif field.type == 'model' %}
+      {# Loads the dropdown once the page is up, so rendering never waits
+         on the network; the input below is the fallback. #}
+      <div class="model-field" hx-get="/actions/llm-models?field={{ field.key }}"
+           hx-trigger="load" hx-target="this" hx-swap="outerHTML">
+        <input type="text" id="f-{{ field.key }}" name="{{ field.key }}" value="{{ field.value }}">
+        <small class="muted">загружаю список моделей…</small>
+      </div>
+    {% elif field.type == 'text' %}
+      <textarea id="f-{{ field.key }}" name="{{ field.key }}" rows="5">{{ field.value }}</textarea>
+    {% elif field.type == 'secret' %}
+      <input type="password" id="f-{{ field.key }}" name="{{ field.key }}"
+             placeholder="{{ '•••••• (сохранён)' if field.value else 'не задан' }}" autocomplete="off">
+    {% elif field.type in ('int', 'float') %}
+      <input type="number" id="f-{{ field.key }}" name="{{ field.key }}" value="{{ field.value }}"
+             step="{{ '1' if field.type == 'int' else 'any' }}"
+             {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
+             {% if field.maximum is not none %}max="{{ field.maximum }}"{% endif %}>
+    {% else %}
+      <input type="text" id="f-{{ field.key }}" name="{{ field.key }}" value="{{ field.value }}">
+    {% endif %}
+
+    {% if field.help %}<small class="muted">{{ field.help }}</small>{% endif %}
+  </div>
+{% endmacro %}
+
+{% block content %}
+<section class="block">
+  <h2>Настройки</h2>
+  <p class="muted">
+    Значения из <code>configs/*.yaml</code> — стартовые; изменённое здесь хранится в базе и имеет приоритет.
+  </p>
+
+  {% if saved %}<p class="ok">Настройки сохранены.</p>{% endif %}
+  {% if errors %}
+    <div class="error-box">
+      <strong>Не сохранено:</strong>
+      <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  <form method="post" action="/actions/settings" class="settings-form">
+    {% for group, fields in groups %}
+      <fieldset>
+        <legend>{{ group }}</legend>
+        {% if group == 'Нейросеть' %}
+          <div class="field-status">
+            {% with initial = true %}{% include "partials/llm_status.html" %}{% endwith %}
+          </div>
+        {% endif %}
+
+        {% for field in fields.main %}{{ render_field(field) }}{% endfor %}
+
+        {% if fields.advanced %}
+          {# Set-once knobs: kept out of the way, opened when a value differs
+             from the default so a tweak is never hidden. #}
+          <details class="advanced" {{ 'open' if fields.advanced | selectattr('is_default', 'equalto', false) | list }}>
+            <summary>Тонкая настройка ({{ fields.advanced | length }})</summary>
+            {% for field in fields.advanced %}{{ render_field(field) }}{% endfor %}
+          </details>
+        {% endif %}
+      </fieldset>
+    {% endfor %}
+
+    <div class="form-actions">
+      <button type="submit" class="primary">Сохранить</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

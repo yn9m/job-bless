@@ -1,0 +1,18 @@
+{# Rebuild the profile with a model picked right here.
+   The list comes from the endpoint itself; when it is unavailable the field
+   falls back to free text so the button still works. #}
+<form method="post" action="/actions/resume/{{ resume.id }}/profile" class="profile-form">
+  {% if models %}
+    <select name="model" title="Модель для сборки профиля">
+      {% for model in models %}
+        <option value="{{ model }}" {{ 'selected' if model == profile_model }}>{{ model }}</option>
+      {% endfor %}
+      {% if profile_model and profile_model not in models %}
+        <option value="{{ profile_model }}" selected>{{ profile_model }} — своё значение</option>
+      {% endif %}
+    </select>
+  {% else %}
+    <input type="text" name="model" value="{{ profile_model }}" placeholder="модель для профиля">
+  {% endif %}
+  <button type="submit" class="{{ 'primary' if primary }}">{{ button }}</button>
+</form>

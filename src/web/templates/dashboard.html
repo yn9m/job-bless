@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Обзор — job-bless{% endblock %}
+
+{% block content %}
+<div class="cards">
+  <div class="card">
+    <div class="card-value">{{ stats.vacancies_total }}</div>
+    <div class="card-label">вакансий собрано</div>
+  </div>
+  <div class="card">
+    <div class="card-value">{{ stats.scored_total }}</div>
+    <div class="card-label">оценено нейросетью</div>
+  </div>
+  <div class="card">
+    <div class="card-value">{{ ready_to_apply }}</div>
+    <div class="card-label">готовы к отклику (≥ {{ threshold }})</div>
+  </div>
+  <div class="card">
+    <div class="card-value">{{ stats.by_status.get('applied', 0) }}</div>
+    <div class="card-label">откликов отправлено</div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="block">
+    <h2>Резюме</h2>
+    {% if resume %}
+      <p class="strong">{{ resume.title or resume.full_name or 'Без названия' }}</p>
+      <p class="muted">{{ resume.city }}{% if resume.experience_text %} · {{ resume.experience_text }}{% endif %}</p>
+      {% if resume.skills %}
+        <p class="tags">{% for skill in resume.skills[:12] %}<span class="tag">{{ skill }}</span>{% endfor %}</p>
+      {% endif %}
+      <p class="muted"><a href="{{ resume.source_url }}" target="_blank" rel="noopener">{{ resume.source_url }}</a></p>
+    {% else %}
+      <p class="warn">Резюме не импортировано — оценка вакансий работать не будет.</p>
+      <p><a class="btn" href="/resume">Импортировать по ссылке hh.ru</a></p>
+    {% endif %}
+  </section>
+
+  <section class="block">
+    <h2>Что настроено</h2>
+    <dl class="kv">
+      <dt>Поисковый запрос</dt>
+      <dd>
+        {% if search_query %}
+          {{ search_query }}
+          <div class="muted small ellipsis" title="{{ search_url }}">{{ search_url }}</div>
+        {% else %}
+          <span class="warn">не задан у активного резюме</span>
+          <div class="muted small"><a href="/resume">указать на вкладке «Резюме»</a></div>
+        {% endif %}
+      </dd>
+      <dt>Нейросеть</dt>
+      <dd>{% with initial = true %}{% include "partials/llm_status.html" %}{% endwith %}</dd>
+      <dt>Порог отклика</dt><dd>{{ threshold }}</dd>
+      <dt>Режим откликов</dt>
+      <dd>{% if apply_mode == 'auto' %}<span class="badge warn-badge">авто</span>{% else %}ручной{% endif %}</dd>
+      <dt>Расписание</dt>
+      <dd>{% if scheduler.enabled %}каждые {{ scheduler.interval_minutes }} мин{% else %}выключено{% endif %}</dd>
+    </dl>
+    <p><a class="link" href="/settings">Изменить настройки →</a></p>
+  </section>
+</div>
+
+<section class="block">
+  <h2>Статусы откликов</h2>
+  <div class="chips">
+    {% for status, count in stats.by_status.items() %}
+      <span class="chip">{{ status }}: <strong>{{ count }}</strong></span>
+    {% else %}
+      <span class="muted">Откликов ещё не было</span>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="block">
+  <h2>Последние прогоны</h2>
+  <table>
+    <thead><tr><th>Задача</th><th>Статус</th><th>Запуск</th><th>Завершение</th><th>Результат</th></tr></thead>
+    <tbody>
+    {% for run in runs %}
+      <tr>
+        <td>{{ run.kind }}</td>
+        <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+        <td>{{ run.started_at | short_dt }}</td>
+        <td>{{ run.finished_at | short_dt }}</td>
+        <td class="muted small">{{ run.result }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Пока пусто</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

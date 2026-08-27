@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Отклики — job-bless{% endblock %}
+
+{% block content %}
+<section class="block">
+  <h2>Отклики <span class="muted">({{ total }})</span></h2>
+
+  <div class="chips">
+    <a class="chip {{ 'chip-active' if not status }}" href="/applications">все</a>
+    {% for name, count in by_status.items() %}
+      <a class="chip {{ 'chip-active' if status == name }}" href="/applications?status={{ name }}">{{ name }}: <strong>{{ count }}</strong></a>
+    {% endfor %}
+  </div>
+
+  <table class="wide">
+    <thead>
+      <tr><th>Когда</th><th>Оценка</th><th>Вакансия</th><th>Компания</th><th>Статус</th><th>Комментарий</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td class="nowrap">{{ row.applied_at | short_dt }}</td>
+        <td>
+          {% if row.score is not none %}
+            <span class="score {{ row.score | score_class }}">{{ row.score }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>
+          <a href="{{ row.vacancy_url }}" target="_blank" rel="noopener">{{ row.title or row.external_id }}</a>
+          {% if row.verdict %}<div class="verdict">{{ row.verdict }}</div>{% endif %}
+          {% if row.cover_letter %}
+            {# The letter the model actually sent — kept visible so the prompt
+               can be judged after the fact. #}
+            <details class="letter">
+              <summary class="link small">Сопроводительное письмо ({{ row.cover_letter | length }} симв.)</summary>
+              <pre class="raw-text">{{ row.cover_letter }}</pre>
+            </details>
+          {% endif %}
+        </td>
+        <td>{{ row.company_name or '—' }}</td>
+        <td><span class="badge {{ row.status }}">{{ row.status }}</span></td>
+        <td class="muted small">{{ row.error_message or row.response_text }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Откликов пока нет</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if pages > 1 %}
+  <div class="pager">
+    {% for p in range(1, pages + 1) %}
+      {% if p == page %}<span class="current">{{ p }}</span>
+      {% else %}<a href="?page={{ p }}{% if status %}&status={{ status }}{% endif %}">{{ p }}</a>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Вакансии — job-bless{% endblock %}
+
+{% block content %}
+<section class="block">
+  <h2>Вакансии <span class="muted">({{ total }})</span></h2>
+
+  {% if not resume %}
+    <p class="warn">Нет активного резюме — оценки не считаются. <a href="/resume">Импортировать резюме</a></p>
+  {% endif %}
+
+  <form class="filters" method="get" action="/vacancies">
+    <input type="search" name="search" value="{{ search }}" placeholder="Поиск по названию или компании">
+    <label>Оценка от
+      <input type="number" name="min_score" min="0" max="100" value="{{ min_score if min_score is not none else '' }}">
+    </label>
+    <label><input type="checkbox" name="only_scored" value="1" {{ 'checked' if only_scored }}> только оценённые</label>
+    <label><input type="checkbox" name="only_unapplied" value="1" {{ 'checked' if only_unapplied }}> без отклика</label>
+    {% if resumes | length > 1 %}
+      <select name="found_for_resume">
+        <option value="0">найдено любым резюме</option>
+        {% for item in resumes %}
+          <option value="{{ item.id }}" {{ 'selected' if found_for_resume == item.id }}>
+            найдено под «{{ item.title or item.search_query or item.source_url }}»
+          </option>
+        {% endfor %}
+      </select>
+    {% endif %}
+    <select name="order">
+      <option value="score" {{ 'selected' if order == 'score' }}>по оценке</option>
+      <option value="recent" {{ 'selected' if order == 'recent' }}>по дате находки</option>
+      <option value="salary" {{ 'selected' if order == 'salary' }}>по зарплате</option>
+    </select>
+    <button type="submit">Применить</button>
+    <a class="link" href="/vacancies">Сбросить</a>
+  </form>
+
+  <form method="post" action="/actions/apply" hx-post="/actions/apply" hx-target="#task-panel" hx-swap="outerHTML">
+    <div class="bulk-bar">
+      <label><input type="checkbox" id="check-all"> выделить все на странице</label>
+      <button type="submit" class="primary" {{ 'disabled' if tasks.is_busy }}>Откликнуться на выбранные</button>
+      <span class="muted">порог для авто-отбора: {{ threshold }}</span>
+    </div>
+
+    <table class="wide">
+      <thead>
+        <tr>
+          <th></th><th>Оценка</th><th>Вакансия</th><th>Компания</th>
+          <th>Зарплата</th><th>Город</th><th>Отклик</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>
+            {% if not row.application_status %}
+              <input type="checkbox" name="vacancy_ids" value="{{ row.id }}" class="row-check">
+            {% endif %}
+          </td>
+          <td>
+            {% if row.score is not none %}
+              <span class="score {{ row.score | score_class }}" title="{{ row.verdict }}">{{ row.score }}</span>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{{ row.canonical_url }}" target="_blank" rel="noopener">{{ row.title }}</a>
+            {% if row.verdict %}<div class="verdict">{{ row.verdict }}</div>{% endif %}
+            {% if row.missing_skills %}
+              <div class="muted small">не хватает: {{ row.missing_skills | join(', ') }}</div>
+            {% endif %}
+          </td>
+          <td>{{ row.company_name }}</td>
+          <td class="nowrap">{{ row.salary_text or '—' }}</td>
+          <td>{{ row.city or '—' }}</td>
+          <td>
+            {% if row.application_status %}
+              <span class="badge {{ row.application_status }}">{{ row.application_status }}</span>
+              {% if row.cover_letter %}
+                <details class="letter">
+                  <summary class="link small">письмо</summary>
+                  <pre class="raw-text">{{ row.cover_letter }}</pre>
+                </details>
+              {% endif %}
+            {% else %}
+              <span class="muted">нет</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="muted">Ничего не найдено. Запустите сбор вакансий.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </form>
+
+  {% if pages > 1 %}
+  <div class="pager">
+    {% for p in range(1, pages + 1) %}
+      {% if p == page %}
+        <span class="current">{{ p }}</span>
+      {% elif p <= 3 or p > pages - 3 or (p - page) | abs <= 2 %}
+        <a href="?page={{ p }}&search={{ search }}&order={{ order }}{% if min_score is not none %}&min_score={{ min_score }}{% endif %}{% if only_scored %}&only_scored=1{% endif %}{% if only_unapplied %}&only_unapplied=1{% endif %}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
