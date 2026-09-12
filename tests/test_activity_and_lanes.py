@@ -137,28 +137,18 @@ def test_stopping_one_lane_leaves_the_other_running(client):
         portal.call(anyio.sleep, 0.3)
 
 
-def test_panel_shows_both_lanes(client):
-    panel = client.get("/partials/status").text
-    assert "Просматривать hh.ru в фоне" in panel
-    assert 'hx-post="/actions/activity"' in panel
-    assert 'hx-vals=\'{"kind":"resume_touch"}\'' in panel
+def test_panel_keeps_resume_touch_but_removes_background_browsing(client):
+    panel = client.get('/partials/status').text
+    assert 'Просматривать hh.ru в фоне' not in panel
+    assert 'data-action-id="activity"' not in panel
+    assert 'data-action-id="resume_touch"' in panel
 
 
-def test_activity_endpoint_starts_the_activity_lane(client, monkeypatch):
-    from unittest.mock import AsyncMock
-    from src.web import jobs
-
-    monkeypatch.setattr(jobs, "activity_job", AsyncMock(return_value={}))
-    with start_blocking_portal() as portal:
-        repository = client.app.state.repository
-        portal.call(repository.create_task_run, TaskRun(id="login-ok", kind=TaskKind.LOGIN))
-        portal.call(repository.finish_task_run, "login-ok", TaskStatus.COMPLETED, {"logged_in": True})
-    response = client.post("/actions/activity")
-    assert response.status_code == 200
-
-    with start_blocking_portal() as portal:
-        runs = portal.call(client.app.state.repository.list_task_runs, 5)
-    assert runs and runs[0]["kind"] == "activity"
+def test_removed_activity_cannot_be_started_through_either_endpoint(client):
+    assert client.post('/actions/activity').status_code == 404
+    response = client.post('/actions/start', data={'kind': 'activity'})
+    assert 'неизвестная задача' in response.text
+    assert client.app.state.tasks.activity is None
 
 
 def test_stop_targets_the_requested_lane(client):
@@ -272,38 +262,17 @@ async def test_close_stream_completes_even_when_cancelled():
 
 # --- settings ------------------------------------------------------------
 
-def test_activity_settings_have_their_own_group(client):
-    settings = client.app.state.settings
-    groups = dict(settings.grouped_fields())
-    assert "Имитация активности" in groups
-    assert "Обновление резюме" in groups
-
-    page = client.get("/actions/activity-settings").text
-    assert "Фоновый просмотр" in page
-    assert 'name="activity.duration_min"' in page
+def test_removed_activity_settings_are_not_exposed(client):
+    assert client.get('/actions/activity-settings').status_code == 404
+    assert client.post('/actions/activity-settings', data={'schedule.activity_enabled':'1'}).status_code == 404
+    assert 'name="activity.' not in client.get('/settings').text
+    assert 'name="schedule.activity_' not in client.get('/settings').text
 
 
-def test_activity_config_falls_back_to_the_resume_query(client):
-    settings = client.app.state.settings
-    client.post(
-        "/actions/activity-settings",
-        data={"activity.url": "", "activity.duration_min": "3"},
-        follow_redirects=False,
-    )
-    config = settings.activity_config(query="Go")
-    assert "text=Go" in config.url
-    assert config.duration_min == 3
 
 
-def test_activity_pause_range_cannot_be_inverted(client):
-    settings = client.app.state.settings
-    client.post(
-        "/actions/activity-settings",
-        data={"activity.pause_min_sec": "9", "activity.pause_max_sec": "2"},
-        follow_redirects=False,
-    )
-    config = settings.activity_config()
-    assert config.pause_max_sec >= config.pause_min_sec
+
+
 
 
 def test_legacy_page_limit_is_ignored_and_hidden(client):
@@ -316,26 +285,15 @@ def test_legacy_page_limit_is_ignored_and_hidden(client):
 
 # --- scheduler -----------------------------------------------------------
 
-def test_scheduler_has_three_independent_cycles(client):
-    names = [cycle["name"] for cycle in client.app.state.scheduler.status()]
-    assert names == ["pipeline", "activity", "resume_touch"]
+def test_scheduler_has_search_and_resume_touch_cycles(client):
+    assert [cycle['name'] for cycle in client.app.state.scheduler.status()] == ['pipeline', 'resume_touch']
 
 
-def test_activity_schedule_is_independent_of_the_pipeline(client):
-    client.post(
-        "/actions/activity-settings",
-        data={
-            "schedule.enabled": "",               # pipeline off
-            "schedule.activity_enabled": "1",     # activity on
-            "schedule.activity_interval_minutes": "45",
-        },
-        follow_redirects=False,
-    )
-    cycles = {cycle["name"]: cycle for cycle in client.app.state.scheduler.status()}
-    assert cycles["pipeline"]["enabled"] is False
-    assert cycles["activity"]["enabled"] is True
-    assert cycles["activity"]["interval_minutes"] == 45
-    assert cycles["activity"]["next_run_at"] is not None
+def test_legacy_activity_schedule_cannot_restart_removed_feature(client):
+    client.portal.call(client.app.state.repository.save_settings, {'schedule.activity_enabled':'true'})
+    client.portal.call(client.app.state.settings.load)
+    client.app.state.scheduler.reschedule()
+    assert all(entry.name != 'activity' for entry in client.app.state.scheduler.entries)
 
 
 def test_resume_touch_interval_is_in_hours(client):
@@ -604,28 +562,3 @@ def test_instant_is_the_default_load_mode(client):
 
     client.post("/actions/search-settings", data={"scroller.load_mode": "scroll"}, follow_redirects=False)
     assert client.app.state.settings.scroller_config().load_mode == "scroll"
-
-
-@pytest.mark.parametrize("has_resume", [False, True])
-@pytest.mark.parametrize("login_result", [None, False, True])
-def test_activity_availability_depends_on_login_not_resume(client, has_resume, login_result):
-    import re
-
-    repository = client.app.state.repository
-    with start_blocking_portal() as portal:
-        if has_resume:
-            rid = portal.call(repository.upsert_resume, Resume(source_url="https://hh.ru/resume/login-qa"))
-            portal.call(repository.set_active_resume, rid)
-        if login_result is not None:
-            portal.call(repository.create_task_run, TaskRun(id="login-state", kind=TaskKind.LOGIN))
-            portal.call(repository.finish_task_run, "login-state", TaskStatus.COMPLETED, {"logged_in": login_result})
-    panel = client.get("/partials/status").text
-    button = re.search(r'<button[^>]*hx-post="/actions/activity"[^>]*>', panel).group()
-    assert ("disabled" not in button) == (login_result is True)
-    assert ('id="activity-login-required"' in panel) == (login_result is not True)
-    if login_result is not True:
-        for endpoint, data in [("/actions/activity", {}), ("/actions/start", {"kind": "activity"})]:
-            assert "Для фонового просмотра сначала войдите в hh.ru." in client.post(endpoint, data=data).text
-        with start_blocking_portal() as portal:
-            runs = portal.call(repository.list_task_runs, 20)
-        assert all(run["kind"] != "activity" for run in runs)

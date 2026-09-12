@@ -2,12 +2,13 @@
 {% block title %}Вакансии — job-bless{% endblock %}
 {% block content %}
 <section class="vacancies-page" id="vacancies-page">
-  <header class="vacancies-heading">
+  <header class="vacancies-heading" id="vacancies-heading">
     <div><h1>Вакансии <span class="muted">{{ total }}</span></h1><p class="muted">Сохранённые вакансии, их оценки и ваши отклики.</p></div>
     <div class="vacancies-toolbar">
       {% if total %}<a class="btn" href="/vacancies/export?{{ pagination_query }}" download>Скачать CSV · {{ total }}</a>{% else %}<button disabled>Скачать CSV · 0</button>{% endif %}
     </div>
   </header>
+  <button type="button" id="vacancies-refresh" hidden>Есть обновления — обновить список</button>
   <div class="vacancies-context">
     {% if resume %}<span>Оценки по резюме <strong>{{ resume.title or resume.search_query or 'Без названия' }}</strong></span><a href="/resume">Изменить резюме</a>
     {% else %}<span>Добавьте резюме, чтобы оценивать вакансии и отправлять отклики.</span><a href="/resume#resume-import">Добавить резюме</a>{% endif %}
@@ -28,6 +29,7 @@
       <div class="vacancy-filter-actions"><noscript><button type="submit">Применить</button></noscript>{% if filters_active %}<a href="/vacancies">Сбросить</a>{% endif %}</div>
     </div>
   </form>
+  <div id="vacancies-results">
   {% if rows %}
   <form method="post" action="/actions/apply" id="vacancy-selection">
     {% include 'partials/csrf_input.html' %}
@@ -86,5 +88,6 @@
   {% if pages > 1 %}<nav class="pager" aria-label="Страницы вакансий">
     {% for p in range(1, pages + 1) %}{% if p == page %}<span class="current" aria-current="page">{{ p }}</span>{% elif p <= 3 or p > pages - 3 or (p - page) | abs <= 2 %}<a href="?{{ pagination_query }}&page={{ p }}" aria-label="Страница {{ p }}">{{ p }}</a>{% endif %}{% endfor %}
   </nav>{% endif %}
+  </div>
 </section>
 {% endblock %}

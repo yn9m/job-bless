@@ -175,7 +175,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
         async def idle_status():
             state = app.state
             scheduled = any(state.settings.get(key, False) for key in (
-                "schedule.enabled", "schedule.activity_enabled", "schedule.resume_touch_enabled"))
+                "schedule.enabled", "schedule.resume_touch_enabled"))
             return {"busy": any(lane.is_busy for lane in state.tasks.lanes.values())
                     or state.aistudio.busy or any(state.screens.active(p) for p in ("hh", "google")),
                     "scheduled": scheduled}

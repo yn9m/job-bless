@@ -103,6 +103,73 @@ async def test_reader_checks_stop_after_rate_limit_before_navigation():
     reader.page.goto.assert_not_awaited()
 
 
+@pytest.mark.parametrize('message', ['Page.goto: Target crashed', 'Page.goto: NS_ERROR_ABORT'])
+async def test_persistent_browser_error_exhausts_retries_and_releases_tab(monkeypatch, message):
+    from playwright.async_api import Error
+    from src.collector import detail_parser
+    monkeypatch.setattr(detail_parser, 'asyncio', SimpleNamespace(sleep=AsyncMock()))
+    reader = VacancyDetailsReader(BrowserConfig(), limiter=None, should_stop=lambda: False)
+    connection = SimpleNamespace(__aexit__=AsyncMock())
+    reader.connection = connection
+    reader._read = AsyncMock(side_effect=Error(message))
+    with pytest.raises(RuntimeError, match='3 попытки'):
+        await reader.read(VacancyCard(external_id='42', url='https://hh.ru/vacancy/42'))
+    assert reader._read.await_count == 3
+    connection.__aexit__.assert_awaited_once()
+    assert reader.connection is None
+
+
+async def test_hung_read_has_deadline_and_next_vacancy_can_be_read():
+    reader = VacancyDetailsReader(BrowserConfig(), limiter=None, should_stop=lambda: False)
+    reader.READ_TIMEOUT_SEC = .01
+    connection = SimpleNamespace(__aexit__=AsyncMock())
+    reader.connection = connection
+    reader.page = object()
+    async def hang(card):
+        await asyncio.Event().wait()
+    reader._read = hang
+    with pytest.raises(RuntimeError, match='Не удалось загрузить подробности за'):
+        await reader.read(VacancyCard(external_id='42', url='https://hh.ru/vacancy/42'))
+    connection.__aexit__.assert_awaited_once()
+    reader._read = AsyncMock(return_value=parse_details(snapshot(vacancy_id=43), '43'))
+    assert (await reader.read(VacancyCard(external_id='43', url='https://hh.ru/vacancy/43'))).full_description
+
+
+async def test_failed_navigation_releases_tab_even_without_retry():
+    reader = VacancyDetailsReader(BrowserConfig(), limiter=None, should_stop=lambda: False)
+    connection = SimpleNamespace(__aexit__=AsyncMock())
+    reader.connection = connection
+    reader._read = AsyncMock(side_effect=ValueError('bad vacancy'))
+    with pytest.raises(ValueError):
+        await reader.read(VacancyCard(external_id='42', url='https://hh.ru/vacancy/42'))
+    connection.__aexit__.assert_awaited_once()
+
+
+async def test_cancellation_releases_detail_tab():
+    reader = VacancyDetailsReader(BrowserConfig(), limiter=None, should_stop=lambda: False)
+    connection = SimpleNamespace(__aexit__=AsyncMock())
+    reader.connection = connection
+    started = asyncio.Event()
+    async def hang(card):
+        started.set()
+        await asyncio.Event().wait()
+    reader._read = hang
+    task = asyncio.create_task(reader.read(VacancyCard(external_id='42', url='https://hh.ru/vacancy/42')))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    connection.__aexit__.assert_awaited_once()
+
+
+async def test_challenge_detected_during_tab_release_still_stops_collection():
+    reader = VacancyDetailsReader(BrowserConfig(), limiter=None, should_stop=lambda: False)
+    reader.connection = SimpleNamespace(__aexit__=AsyncMock(side_effect=HHInterventionRequired('captcha')))
+    reader._read = AsyncMock(return_value=parse_details(snapshot(), '42'))
+    with pytest.raises(HHInterventionRequired):
+        await reader.read(VacancyCard(external_id='42', url='https://hh.ru/vacancy/42'))
+
+
 @pytest.mark.parametrize('external_id', ['42', '137106403'])
 async def test_reader_retries_same_vacancy_after_browser_crash(monkeypatch, external_id):
     from playwright.async_api import Error
@@ -263,3 +330,45 @@ def test_job_saves_cards_first_and_each_detail_immediately(client, monkeypatch, 
     assert client.portal.call(run) == {'ok': 'completed', 'error': 'completed', 'stop': 'cancelled', 'captcha': 'failed'}[outcome]
     assert seen == ['closed']
     assert client.portal.call(repo.count_vacancies) == 2
+
+
+def test_repeat_collection_skips_saved_details_but_reads_missing_and_new_cards(client, monkeypatch):
+    repo, _ = seed(client)
+    manager = client.app.state.tasks
+    client.portal.call(repo.save_vacancy_details, 'hh', '42', parse_details(snapshot(), '42'))
+    # Even a later failed refresh must not discard the usable cached description.
+    client.portal.call(repo.save_vacancy_details, 'hh', '42', VacancyDetails(error='old timeout'))
+    cards = [VacancyCard(external_id=str(i), title=f'Vacancy {i}', url=f'https://hh.ru/vacancy/{i}') for i in (42, 43, 44)]
+    existing_page = PageCommitParams(search_run_id='details', page_key='2', page_number=2,
+        current_url='https://hh.ru/search/vacancy', canonical_url='https://hh.ru/search/vacancy', cards=[cards[1]])
+    client.portal.call(repo.commit_page_transaction, existing_page)
+    async def collect(self, **kwargs):
+        yield PageCommitParams(search_run_id=kwargs['task_id'], page_key='1', page_number=1,
+            current_url=kwargs['search_url'], canonical_url=kwargs['search_url'], cards=cards)
+    monkeypatch.setattr(jobs.HHVacancyCardCollector, 'collect', collect)
+    read_ids = []
+    async def read(self, card):
+        read_ids.append(card.external_id)
+        return parse_details(snapshot(vacancy_id=int(card.external_id)), card.external_id)
+    monkeypatch.setattr(jobs.VacancyDetailsReader, 'read', read)
+    async def run(task_id):
+        ctx = TaskContext(manager, TaskState(id=task_id, kind=TaskKind.COLLECT), manager.lane())
+        return await jobs.collect_job(ctx)
+    result = client.portal.call(run, 'first-repeat')
+    assert read_ids == ['43', '44']
+    assert (result['new'], result['known'], result['skipped_details'], result['detailed']) == (1, 2, 1, 2)
+    read_ids.clear()
+    result = client.portal.call(run, 'second-repeat')
+    assert read_ids == []
+    assert (result['new'], result['known'], result['skipped_details'], result['detailed']) == (0, 3, 3, 0)
+    assert client.portal.call(repo.count_vacancies) == 3
+    # Known cards still belong to each new search run (including another resume).
+    assert client.portal.call(repo._fetch_val, 'SELECT COUNT(*) FROM vacancy_discoveries WHERE search_run_id = ?', ('web_second-repeat',)) == 3
+
+
+def test_archived_details_are_cached_but_failed_missing_details_are_not(client):
+    repo, page = seed(client)
+    client.portal.call(repo.save_vacancy_details, 'hh', '42', VacancyDetails(error='timeout'))
+    assert client.portal.call(repo.collection_card_state, page.cards) == {('hh', '42'): False}
+    client.portal.call(repo.save_vacancy_details, 'hh', '42', parse_details({'dom_archived': True}, '42'))
+    assert client.portal.call(repo.collection_card_state, page.cards) == {('hh', '42'): True}

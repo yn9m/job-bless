@@ -15,13 +15,15 @@
 {%- endmacro %}
 
 {% macro run_result(result) -%}
-{% set labels = {'collect': 'Сбор вакансий', 'score': 'Оценка', 'apply': 'Отклики', 'unique': 'Вакансий собрано', 'pages': 'Страниц', 'detailed': 'Подробностей загружено', 'detail_errors': 'Ошибок загрузки подробностей', 'scored': 'Оценено', 'failed': 'Ошибок', 'above_threshold': 'Выше порога', 'total': 'Всего', 'applied': 'Отправлено', 'skipped': 'Пропущено', 'already_applied': 'Уже откликались', 'resume_id': 'Номер резюме', 'title': 'Название', 'skills': 'Навыков', 'chars': 'Символов', 'source_chars': 'Символов в исходнике', 'chunks': 'Частей', 'model': 'Модель', 'logged_in': 'Вход подтверждён', 'account_name': 'Аккаунт hh.ru', 'storage_state': 'Сохранённая сессия', 'updated': 'Резюме обновлено', 'method': 'Способ обновления', 'before': 'До обновления', 'after': 'После обновления', 'error': 'Ошибка', 'duration_sec': 'Длительность, с', 'elapsed_sec': 'Прошло, с', 'search_pages': 'Страниц поиска', 'vacancies_opened': 'Вакансий открыто', 'scrolls': 'Прокруток', 'minutes': 'Длительность, мин', 'stopped_early': 'Остановлен досрочно'} %}
+{% set labels = {'collect_progress': 'Прогресс сбора', 'new': 'Новых вакансий', 'known': 'Уже в базе', 'skipped_details': 'Пропущено сохранённых подробностей', 'collect': 'Сбор вакансий', 'score': 'Оценка', 'apply': 'Отклики', 'unique': 'Вакансий собрано', 'pages': 'Страниц', 'detailed': 'Подробностей загружено', 'detail_errors': 'Ошибок загрузки подробностей', 'scored': 'Оценено', 'failed': 'Ошибок', 'above_threshold': 'Выше порога', 'total': 'Всего', 'applied': 'Отправлено', 'skipped': 'Пропущено', 'already_applied': 'Уже откликались', 'resume_id': 'Номер резюме', 'title': 'Название', 'skills': 'Навыков', 'chars': 'Символов', 'source_chars': 'Символов в исходнике', 'chunks': 'Частей', 'model': 'Модель', 'logged_in': 'Вход подтверждён', 'account_name': 'Аккаунт hh.ru', 'storage_state': 'Сохранённая сессия', 'updated': 'Резюме обновлено', 'method': 'Способ обновления', 'before': 'До обновления', 'after': 'После обновления', 'error': 'Ошибка', 'duration_sec': 'Длительность, с', 'elapsed_sec': 'Прошло, с', 'search_pages': 'Страниц поиска', 'vacancies_opened': 'Вакансий открыто', 'scrolls': 'Прокруток', 'minutes': 'Длительность, мин', 'stopped_early': 'Остановлен досрочно'} %}
 <dl class="run-result">
 {% for key, value in result.items() %}
+  {% if key != 'collect_progress' or 'new' not in result %}
   <div class="{{ 'result-group' if value is mapping }}">
     <dt>{{ labels.get(key, key) }}</dt>
     <dd>{% if value is mapping %}{{ run_result(value) }}{% elif value is sameas true %}Да{% elif value is sameas false %}Нет{% elif value is none %}—{% elif value is sequence and value is not string %}{{ value | join(', ') }}{% else %}{{ value }}{% endif %}</dd>
   </div>
+  {% endif %}
 {% endfor %}
 </dl>
 {%- endmacro %}

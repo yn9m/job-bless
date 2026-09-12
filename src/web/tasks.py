@@ -244,7 +244,12 @@ class TaskManager:
             return await self._start(kind, job, params=params, trigger=trigger, lane=lane)
 
     async def _start(self, kind, job, *, params, trigger, lane):
-        if kind not in (TaskKind.LOGIN, TaskKind.SCORE, TaskKind.PROFILE):
+        # Public search does not need HH cookies, including after an explicit
+        # logout. A pipeline that will submit responses still needs the account.
+        pipeline_applies = ((params or {}).get('action') == 'pipeline'
+                            and self.settings.get('schedule.do_apply', False)
+                            and self.settings.get('apply.mode', 'manual') == 'auto')
+        if kind not in (TaskKind.LOGIN, TaskKind.SCORE, TaskKind.PROFILE, TaskKind.COLLECT) or pipeline_applies:
             saved = await self.repository.get_all_settings()
             if saved.get("hh.login_required") == "true":
                 raise TaskBusyError("Откройте браузер HH в карточке аккаунта и подтвердите вход.")

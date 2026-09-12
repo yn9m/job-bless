@@ -674,6 +674,28 @@ class DatabaseRepository:
                     row[key] = bool(row[key])
         return rows
 
+    async def collection_card_state(self, cards: Sequence[VacancyCard]) -> Dict[tuple, bool]:
+        """Existing cards and whether their details have already been saved.
+
+        Read only the current page, before its upsert, to count new vacancies.
+        Missing details remain eligible even when the card is already known.
+        """
+        result = {}
+        keys = list(dict.fromkeys((card.source, card.external_id) for card in cards))
+        for start in range(0, len(keys), 200):
+            batch = keys[start:start + 200]
+            where = ' OR '.join('(v.source = ? AND v.external_id = ?)' for _ in batch)
+            rows = await self._fetch_all(f'''
+                SELECT v.source, v.external_id, d.fetched_at, d.full_description, d.archived
+                FROM vacancies v LEFT JOIN vacancy_details d ON d.vacancy_id = v.id
+                WHERE {where}
+            ''', [value for key in batch for value in key])
+            for row in rows:
+                result[(row['source'], row['external_id'])] = bool(
+                    row['fetched_at'] and (row['full_description'] or row['archived'])
+                )
+        return result
+
     async def save_vacancy_details(self, source: str, external_id: str, details: VacancyDetails) -> None:
         vacancy_id = await self._fetch_val(
             "SELECT id FROM vacancies WHERE source = ? AND external_id = ?", (source, external_id)

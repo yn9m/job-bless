@@ -9,17 +9,13 @@ def _prefix(prefix):
 
 ACTION_SECTIONS = {
     "llm": (("Нейросеть", _prefix("llm.")),),
-    "search": (("Сбор вакансий", _prefix("scroller.")),),
+    "search": (("Поиск вакансий", _prefix("scroller.")),),
     "score": (("Оценка вакансий", ("matching.batch_size", "matching.concurrency", "matching.prompt")),),
     "apply": (
         ("Отбор и отправка", ("matching.threshold", "apply.batch_limit", "apply.delay_sec", "apply.recheck_with_llm")),
         ("Сопроводительное письмо", _prefix("cover_letter.")),
     ),
     "profile": (("Описание опыта", _prefix("profile.")),),
-    "activity": (
-        ("Фоновый просмотр", _prefix("activity.")),
-        ("Расписание", ("schedule.activity_enabled", "schedule.activity_interval_minutes")),
-    ),
     "resume_touch": (
         ("Поднятие резюме", ("resume_touch.edit_fallback",)),
         ("Расписание", ("schedule.resume_touch_enabled", "schedule.resume_touch_interval_hours")),
@@ -37,7 +33,8 @@ PIPELINE_KEYS = ACTION_KEYS["pipeline"] | {
 # The threshold is shared by scoring, filtering, and sending replies. The
 # question toggle has no runtime consumer and is deliberately not offered.
 SHARED_KEYS = ({field.key for field in FIELDS} - set().union(*ACTION_KEYS.values()) - PIPELINE_KEYS
-               - {"apply.skip_questions"}) | {"matching.threshold"}
+               - {"apply.skip_questions", "schedule.activity_enabled", "schedule.activity_interval_minutes"}
+               - set(_prefix("activity."))) | {"matching.threshold"}
 
 
 def shared_groups(settings):

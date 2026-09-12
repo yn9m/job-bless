@@ -170,7 +170,13 @@ def test_hh_logout_stops_browser_jobs_and_keeps_panel_and_google(client, monkeyp
     assert client.portal.call(state.repository.get_all_settings)["hh.login_required"] == "true"
     assert client.portal.call(state.repository.list_resumes) == history_before
     with pytest.raises(TaskBusyError, match="подтвердите вход"):
-        client.portal.call(lambda: manager.start(TaskKind.COLLECT, AsyncMock(), trigger="schedule"))
+        client.portal.call(lambda: manager.start(TaskKind.APPLY, AsyncMock(), trigger="schedule"))
+
+    async def guest_collect():
+        await manager.start(TaskKind.COLLECT, AsyncMock(return_value={}), trigger="schedule")
+        await manager.lane().task
+        assert manager.current.status.value == 'completed'
+    client.portal.call(guest_collect)
 
 
 def test_secure_cookie_for_https(tmp_path, monkeypatch):
@@ -332,7 +338,7 @@ def test_chrome_controls_are_removed_from_settings(client):
     assert 'name="browser.close_stale_tabs"' in page
 
 
-def test_hh_challenge_pauses_future_runs_until_verified_login(client):
+def test_hh_challenge_stops_current_run_but_public_search_can_be_retried(client):
     from src.browser.intervention import HHInterventionRequired
     from src.web.panel import hh_account_status
     manager = client.app.state.tasks
@@ -345,10 +351,52 @@ def test_hh_challenge_pauses_future_runs_until_verified_login(client):
         await manager.lane().task
         assert not (await hh_account_status(client.app.state.repository))["logged_in"]
         with pytest.raises(TaskBusyError, match="подтвердите вход"):
-            await manager.start(TaskKind.COLLECT, AsyncMock(), trigger="schedule")
-        await client.app.state.repository.save_settings({"hh.login_required": "false"})
+            await manager.start(TaskKind.APPLY, AsyncMock(), trigger="schedule")
         await manager.start(TaskKind.COLLECT, AsyncMock(return_value={}))
         await manager.lane().task
+        assert (await client.app.state.repository.get_all_settings())['hh.login_required'] == 'true'
+    client.portal.call(run)
+
+
+@pytest.mark.parametrize('path,data,job_name', [
+    ('/actions/collect', {}, 'collect_job'),
+    ('/actions/start', {'kind': 'collect'}, 'collect_job'),
+    ('/actions/pipeline', {}, 'pipeline_job'),
+    ('/actions/start', {'kind': 'pipeline'}, 'pipeline_job'),
+])
+def test_guest_collection_endpoints_work_with_login_required_flag(client, monkeypatch, path, data, job_name):
+    sign_in(client)  # App authentication is separate from the HH account.
+    client.portal.call(client.app.state.repository.save_settings, {'hh.login_required': 'true'})
+    work = AsyncMock(return_value={'new': 1})
+    monkeypatch.setattr(jobs, job_name, work)
+    response = client.post(path, data=data, headers=action_headers(client))
+    assert response.status_code == 200
+    assert 'подтвердите вход' not in response.text
+    async def finish():
+        await client.app.state.tasks.lane().task
+    client.portal.call(finish)
+    work.assert_awaited_once()
+    assert client.app.state.tasks.current.status.value == 'completed'
+    assert client.portal.call(client.app.state.repository.get_all_settings)['hh.login_required'] == 'true'
+
+
+@pytest.mark.parametrize('apply_enabled,mode,blocked', [
+    (False, 'auto', False), (True, 'manual', False), (True, 'auto', True),
+])
+def test_guest_pipeline_requires_hh_only_when_it_will_submit_responses(client, apply_enabled, mode, blocked):
+    manager = client.app.state.tasks
+    async def run():
+        await client.app.state.repository.save_settings({'hh.login_required': 'true'})
+        await client.app.state.settings.save({'schedule.do_apply': '1' if apply_enabled else '0', 'apply.mode': mode})
+        work = AsyncMock(return_value={})
+        if blocked:
+            with pytest.raises(TaskBusyError, match='подтвердите вход'):
+                await manager.start(TaskKind.COLLECT, work, params={'action': 'pipeline'}, trigger='schedule')
+            work.assert_not_awaited()
+        else:
+            await manager.start(TaskKind.COLLECT, work, params={'action': 'pipeline'}, trigger='schedule')
+            await manager.lane().task
+            work.assert_awaited_once()
     client.portal.call(run)
 
 

@@ -10,6 +10,7 @@ from src.config import Config
 from src.db.models import Resume
 from src.web.action_settings import ACTION_KEYS, SHARED_KEYS
 from src.web.app import create_app
+from src.web import jobs
 
 
 @pytest.fixture()
@@ -47,6 +48,50 @@ def test_shared_form_excludes_action_fields_and_preserves_their_switches(client)
             assert settings.get(key) == value, key
 
 
+@pytest.mark.parametrize('with_resume', [False, True])
+def test_inline_query_saves_and_start_uses_latest_input(client, monkeypatch, with_resume):
+    repo = client.app.state.repository
+    resume_id = ''
+    if with_resume:
+        resume_id = str(client.portal.call(repo.upsert_resume, Resume(
+            source_url='https://hh.ru/resume/inline', search_query='Python', context_text='Keep my experience',
+        )))
+        client.portal.call(repo.set_active_resume, int(resume_id))
+    response = client.post('/actions/search-query', data={'resume_id':resume_id, 'search_query':'  Go  '})
+    assert 'Сохранено' in response.text
+    assert not client.app.state.tasks.is_busy
+    assert 'value="Go"' in client.get('/partials/status').text
+    # Saving browser settings no longer submits or clears the query.
+    client.post('/actions/search-settings', data={'resume_id':resume_id, 'scroller.max_scroll_steps_per_page':'9'})
+    assert 'value="Go"' in client.get('/partials/status').text
+    seen = []
+    async def collect(ctx):
+        resume = await ctx.repository.get_active_resume()
+        seen.append(resume.search_query if resume else ctx.settings.search_query)
+        if resume:
+            assert resume.context_text == 'Keep my experience'
+        return {}
+    monkeypatch.setattr(jobs, 'collect_job', collect)
+    client.post('/actions/collect', data={'resume_id':resume_id, 'search_query':'  Rust  '})
+    async def finish():
+        await client.app.state.tasks.lane().task
+    client.portal.call(finish)
+    assert seen == ['Rust']
+
+
+def test_inline_query_rejects_stale_resume_and_empty_input(client, monkeypatch):
+    from unittest.mock import AsyncMock
+    work = AsyncMock(return_value={})
+    monkeypatch.setattr(jobs, 'collect_job', work)
+    before = client.app.state.settings.search_query
+    response = client.post('/actions/collect', data={'resume_id':'999', 'search_query':'Go'})
+    assert 'Активное резюме изменилось' in response.text
+    response = client.post('/actions/collect', data={'resume_id':'', 'search_query':' '})
+    assert 'Укажите, какую работу ищете' in response.text
+    work.assert_not_awaited()
+    assert client.app.state.settings.search_query == before
+
+
 @pytest.mark.parametrize('kind,values,expected', [
     ('llm', {'llm.enabled': '1', 'llm.model': 'test-model', 'llm.api_key': 'test-secret'},
      {'llm.enabled': True, 'llm.model': 'test-model', 'llm.api_key': 'test-secret'}),
@@ -54,9 +99,6 @@ def test_shared_form_excludes_action_fields_and_preserves_their_switches(client)
      {'matching.batch_size': 7, 'matching.concurrency': 2}),
     ('profile', {'profile.model': 'profile-test', 'profile.max_chars': '7500', 'profile.timeout_sec': '200'},
      {'profile.model': 'profile-test', 'profile.max_chars': 7500}),
-    ('activity', {'activity.duration_min': '15', 'activity.open_vacancies': '1',
-                  'schedule.activity_enabled': '1', 'schedule.activity_interval_minutes': '80'},
-     {'activity.duration_min': 15, 'activity.open_vacancies': True, 'schedule.activity_enabled': True}),
     ('resume_touch', {'resume_touch.edit_fallback': '1', 'schedule.resume_touch_enabled': '1',
                       'schedule.resume_touch_interval_hours': '8'},
      {'resume_touch.edit_fallback': True, 'schedule.resume_touch_enabled': True,
@@ -98,7 +140,6 @@ def test_action_modal_persists_only_its_own_settings(client, kind, values, expec
     ('search', {'scroller.max_scroll_steps_per_page': '0'}),
     ('score', {'matching.batch_size': '0', 'matching.prompt': '<b>Сохранить мой текст</b>'}),
     ('profile', {'profile.max_chars': '0', 'profile.model': 'my-model'}),
-    ('activity', {'activity.duration_min': '0', 'schedule.activity_enabled': '1'}),
     ('resume_touch', {'schedule.resume_touch_interval_hours': '0', 'resume_touch.edit_fallback': '1'}),
     ('pipeline', {'schedule.interval_minutes': '0', 'schedule.do_apply': '1', 'schedule.enabled': '1'}),
 ])
@@ -129,7 +170,7 @@ def test_invalid_search_settings_do_not_change_query_or_resume_context(client):
     response = client.post('/actions/search-settings', data={
         'resume_id': str(resume_id), 'search_query': 'Go', 'scroller.max_scroll_steps_per_page': '0',
     })
-    assert 'value="Go"' in response.text and 'value="0"' in response.text
+    assert 'value="0"' in response.text
     assert 'HX-Trigger-After-Settle' not in response.headers
     with start_blocking_portal() as portal:
         resume = portal.call(repository.get_resume, resume_id)
@@ -162,7 +203,7 @@ def test_setup_section_and_resume_selection(client):
     response = client.post('/actions/resume/select', data={'resume_id': second})
     assert response.status_code == 200
     assert f'value="{second}" selected' in response.text
-    assert 'Ищем: «Golang»' in response.text
+    assert 'value="Golang"' in response.text
     with start_blocking_portal() as portal:
         assert portal.call(repository.get_active_resume).id == second
     missing = client.post('/actions/resume/select', data={'resume_id': second + 1})

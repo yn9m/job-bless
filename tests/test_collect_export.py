@@ -57,7 +57,7 @@ def test_standalone_query_persists_and_empty_query_stays_empty(client):
     client.portal.call(settings.load)
     assert settings.search_query == ""
     panel = client.get("/actions").text
-    assert "disabled" in re.search(r'<button[^>]*hx-post="/actions/collect"[^>]*>', panel).group()
+    assert "required" in re.search(r'<input[^>]*id="panel-search-query"[^>]*>', panel).group()
 
 
 def test_invalid_settings_keep_query_and_stale_form_cannot_change_resume(client):
@@ -67,7 +67,7 @@ def test_invalid_settings_keep_query_and_stale_form_cannot_change_resume(client)
         "search_query": "Новый запрос", "scroller.max_scroll_steps_per_page": "-1",
     })
     assert "HX-Trigger-After-Settle" not in response.headers
-    assert 'value="Новый запрос"' in response.text
+    assert 'name="search_query"' not in response.text
     assert settings.search_query == original
     repo = client.app.state.repository
     resume_id = client.portal.call(repo.upsert_resume, Resume(
@@ -89,7 +89,7 @@ def test_select_standalone_keeps_resume_and_independent_queries(client):
     client.portal.call(settings.save_search_query, 'Аналитик')
     response = client.post('/actions/resume/select', data={'resume_id': 0})
     assert 'value="0" selected>Без резюме' in response.text
-    assert 'Ищем: «Аналитик»' in response.text
+    assert 'value="Аналитик"' in response.text
     assert client.portal.call(repo.get_active_resume) is None
     assert 'Выбран поиск без резюме' in client.get('/resume').text
     # A search form opened before the switch cannot overwrite the other query.
@@ -105,7 +105,7 @@ def test_select_standalone_keeps_resume_and_independent_queries(client):
     assert response.status_code == 200
     assert client.portal.call(repo.get_active_resume).id == rid
     response = client.post('/actions/resume/select', data={'resume_id': 0})
-    assert 'Ищем: «SQL»' in response.text
+    assert 'value="SQL"' in response.text
 
 
 @pytest.mark.parametrize("with_resume", [False, True])

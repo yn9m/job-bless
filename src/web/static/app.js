@@ -308,7 +308,37 @@
     }
   }
 
+  let searchDraft = null;
+  document.body.addEventListener('htmx:beforeSwap', event => {
+    if (event.detail.target?.id !== 'task-panel') return;
+    const form = document.getElementById('inline-search-form');
+    const input = document.getElementById('panel-search-query');
+    searchDraft = input && !input.readOnly && input.value !== input.defaultValue ? {
+      value: input.value, resume: form.elements.resume_id.value,
+      focused: document.activeElement === input, start: input.selectionStart, end: input.selectionEnd,
+    } : null;
+  });
+  document.body.addEventListener('htmx:afterSwap', event => {
+    if (event.detail.target?.id !== 'task-panel' || !searchDraft) return;
+    const draft = searchDraft;
+    searchDraft = null;
+    const form = document.getElementById('inline-search-form');
+    const input = document.getElementById('panel-search-query');
+    if (!input || input.readOnly || form.elements.resume_id.value !== draft.resume) return;
+    input.value = draft.value;
+    if (draft.focused) {
+      input.focus({preventScroll: true});
+      input.setSelectionRange(draft.start, draft.end);
+    }
+  });
+  ['htmx:sendError', 'htmx:responseError'].forEach(name => document.body.addEventListener(name, event => {
+    if (!event.detail.elt?.closest('#inline-search-form')) return;
+    const feedback = document.getElementById('search-query-feedback');
+    if (feedback) feedback.textContent = 'Не удалось сохранить запрос. Проверьте соединение и повторите.';
+  }));
+
   function updateProgress(task) {
+    if (task.lane && task.lane !== 'main') return;
     const bar = document.getElementById("task-bar");
     const counter = document.getElementById("task-counter");
     const message = document.getElementById("task-message");
@@ -317,7 +347,59 @@
       ? task.done + " / " + task.total
       : "Обработано страниц: " + task.done + " · без лимита";
     if (message && task.message) message.textContent = task.message;
+    const collection = document.getElementById('collection-progress');
+    const counts = task.result?.collect_progress;
+    if (counter) counter.hidden = Boolean(counts) && !task.total;
+    if (collection) {
+      collection.hidden = !counts;
+      if (counts) collection.querySelectorAll('[data-collection-count]').forEach(value => {
+        const key = value.dataset.collectionCount;
+        value.textContent = counts[key] ?? 0;
+        if (key === 'detail_errors') value.dataset.hasErrors = counts[key] > 0 ? 'true' : 'false';
+      });
+    }
   }
+
+  let vacancyRevision = '';
+  let vacancyRefreshPending = false;
+  async function refreshVacancies(task) {
+    const counts = task?.result?.collect_progress;
+    if (!counts || !document.getElementById('vacancies-page')) return;
+    const revision = `${task.id}:${counts.pages}`;
+    if (revision === vacancyRevision || vacancyRefreshPending) return;
+    vacancyRefreshPending = true;
+    const url = window.location.href;
+    const filters = () => new URLSearchParams(new FormData(document.querySelector('.vacancy-filters'))).toString();
+    const filterValues = filters();
+    try {
+      const response = await fetch(url, {cache: 'no-store'});
+      if (!response.ok) return;
+      const html = await response.text();
+      if (url !== window.location.href || filterValues !== filters()) return;
+      const next = new DOMParser().parseFromString(html, 'text/html');
+      const heading = next.getElementById('vacancies-heading');
+      const results = next.getElementById('vacancies-results');
+      if (!heading || !results) return;
+      document.getElementById('vacancies-heading').replaceWith(heading);
+      const current = document.getElementById('vacancies-results');
+      // Keep selections and expanded descriptions in place while being read.
+      if (current.querySelector('input:checked, details[open]') || current.contains(document.activeElement)) {
+        document.getElementById('vacancies-refresh').hidden = false;
+      } else {
+        current.replaceWith(results);
+        window.htmx?.process(results);
+        setupVacancySelection();
+      }
+      vacancyRevision = revision;
+    } catch (_) {
+      // The next task event retries a failed refresh.
+    } finally {
+      vacancyRefreshPending = false;
+    }
+  }
+  document.addEventListener('click', event => {
+    if (event.target.id === 'vacancies-refresh') window.location.reload();
+  });
 
   function connect() {
     if (!pageActive || source) return;
@@ -331,6 +413,7 @@
         return;
       }
 
+      if (data.task) refreshVacancies(data.task);
       if (data.type === "snapshot") {
         // The server replays the running task's log right after connect —
         // drop what the page was rendered with so lines are not doubled.
@@ -386,7 +469,7 @@
 
   document.body.addEventListener('aistudioChanged', refreshPanel);
   // Dialogs live outside the task panel so live updates preserve edits.
-  ["pipeline", "search", "apply", "score", "profile", "activity", "resume_touch", "llm"].forEach(function (kind) {
+  ["pipeline", "search", "apply", "score", "profile", "resume_touch", "llm"].forEach(function (kind) {
     const dialog = document.getElementById(kind + "-dialog");
     if (!dialog) return;
     const opener = "[data-open-" + kind + "]";

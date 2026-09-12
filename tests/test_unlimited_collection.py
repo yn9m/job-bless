@@ -169,6 +169,29 @@ async def test_unknown_parser_error_is_not_retried_or_reported_as_empty(search):
         await run(search)
 
 
+async def test_persistent_search_failure_ends_after_three_attempts(search):
+    collector, page, _ = search
+    collector._wait_for_cards.side_effect = PlaywrightTimeoutError('HH never loads')
+    with pytest.raises(RuntimeError, match='3 попытки'):
+        await run(search)
+    assert page.goto.await_count == 3
+    collector.card_parser.parse_cards_from_page.assert_not_awaited()
+
+
+async def test_persistent_pager_failure_does_not_recommit_saved_cards(search):
+    collector, page, _ = search
+    page.wait_for_function.side_effect = PlaywrightTimeoutError('HH never changes page')
+    committed = []
+    with pytest.raises(RuntimeError, match='Уже собранные вакансии сохранены'):
+        async for item in collector.collect(BrowserConfig(), 'https://hh.ru/search/vacancy', 'test',
+                                           scroller_config=ScrollerConfig(load_mode='instant')):
+            if isinstance(item, PageCommitParams):
+                committed.append(item)
+    assert len(committed) == 1
+    assert page.goto.await_count == 3
+    assert collector.card_parser.parse_cards_from_page.await_count == 1
+
+
 async def test_explicit_empty_results_can_complete(search):
     collector, _, button = search
     collector._wait_for_cards.return_value = 0

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from asyncio import CancelledError
+from asyncio import CancelledError, wait_for
 from contextlib import AsyncExitStack
 from typing import AsyncGenerator, Optional, Union, Callable
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
@@ -28,6 +28,9 @@ class HHVacancyCardCollector:
     Direct in-memory Python collector. Operates Playwright, scrolls pages,
     parses HH vacancy cards incrementally, and yields cards & page commit parameters.
     """
+
+    MAX_ATTEMPTS = 3
+    PAGE_READ_TIMEOUT_SEC = 90
 
     NEXT_PAGE_SELECTORS = [
         '[data-qa="pager-next"]',
@@ -188,7 +191,7 @@ class HHVacancyCardCollector:
                 while not self._stop_requested:
                     try:
                         if page is None:
-                            page = await tabs.enter_async_context(connector.connect())
+                            page = await wait_for(tabs.enter_async_context(connector.connect()), 30)
                             self.popup_handler.setup_dialog_handler(page)
                             logger.info("Opening page #%s for task '%s': %s", page_number, task_id, resume_url)
                             if limiter:
@@ -213,7 +216,9 @@ class HHVacancyCardCollector:
                             if resume_url in visited_urls:
                                 raise RuntimeError('HH вернул уже обработанную страницу вместо следующей')
                             logger.info("Task '%s' -> Processing page #%s: %s", task_id, page_number, resume_url)
-                            candidates, has_results = await self._read_page(page, page_number, resume_url, sc_cfg)
+                            candidates, has_results = await wait_for(
+                                self._read_page(page, page_number, resume_url, sc_cfg), self.PAGE_READ_TIMEOUT_SEC,
+                            )
                             if self._stop_requested and not candidates:
                                 break
                             page_key = f'page_{page_number}'
@@ -246,7 +251,7 @@ class HHVacancyCardCollector:
                             await limiter.acquire(should_stop=lambda: self._stop_requested)
                         if self._stop_requested:
                             break
-                        if not await self._go_to_next_page(page):
+                        if not await wait_for(self._go_to_next_page(page), 45):
                             summary.completion_reason = 'no_more_pages'
                             break
                         resume_url = page.url
@@ -258,11 +263,17 @@ class HHVacancyCardCollector:
                             raise
                         # Preserve the last committed page and its cards. A retry
                         # reopens only this page, never restarts the entire search.
-                        await tabs.aclose()
+                        await wait_for(tabs.aclose(), 5)
                         page = None
                         failures += 1
+                        if failures >= self.MAX_ATTEMPTS:
+                            raise RuntimeError(
+                                f'Страница #{page_number}: не удалось продолжить сбор за {self.MAX_ATTEMPTS} попытки. '
+                                'Уже собранные вакансии сохранены. Попробуйте запустить сбор позже.'
+                            ) from error
                         message = (f'страница #{page_number}: сбой загрузки, восстанавливаю сбор '
-                                   f'через {min(30, 2 ** min(failures, 5))} с — {str(error).splitlines()[0][:180]}')
+                                   f'(попытка {failures + 1}/{self.MAX_ATTEMPTS}) '
+                                   f'через {min(30, 2 ** min(failures, 5))} с — {(str(error) or "таймаут").splitlines()[0][:180]}')
                         logger.warning(message)
                         if on_retry:
                             on_retry(message)

@@ -1,7 +1,9 @@
 """Read vacancy details without opening or submitting the response form."""
 
 import asyncio
+import logging
 import re
+from asyncio import wait_for
 from dataclasses import replace
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -145,6 +147,10 @@ def parse_details(data: dict, external_id: str) -> VacancyDetails:
 class VacancyDetailsReader:
     """Keep at most one extra tab; release each document after reading it."""
 
+    MAX_ATTEMPTS = 3
+    READ_TIMEOUT_SEC = 90
+    CLOSE_TIMEOUT_SEC = 5
+
     def __init__(self, browser_config, *, limiter, should_stop, on_retry=None):
         self.config = browser_config
         self.limiter = limiter
@@ -164,7 +170,12 @@ class VacancyDetailsReader:
         if self.connection:
             connection, self.connection = self.connection, None
             self.page = None
-            await connection.__aexit__(*(exc or (None, None, None)))
+            try:
+                await wait_for(connection.__aexit__(*(exc or (None, None, None))), self.CLOSE_TIMEOUT_SEC)
+            except HHInterventionRequired:
+                raise
+            except Exception as error:
+                logging.getLogger(__name__).warning('Could not release vacancy tab: %s', error)
 
     def _check_stop(self):
         if self.should_stop():
@@ -174,6 +185,15 @@ class VacancyDetailsReader:
         self._check_stop()
         if not card.external_id.isdigit() or not HH_URL_RE.match(card.url):
             raise ValueError('Нет прямой ссылки на вакансию HH')
+        try:
+            return await wait_for(self._read_with_retries(card), self.READ_TIMEOUT_SEC)
+        except TimeoutError as error:
+            raise RuntimeError(f'Не удалось загрузить подробности за {self.READ_TIMEOUT_SEC} с') from error
+        finally:
+            # Failed navigation and cancellation must release the tab too.
+            await self._release_page()
+
+    async def _read_with_retries(self, card: VacancyCard) -> VacancyDetails:
         failures = 0
         while True:
             try:
@@ -189,9 +209,11 @@ class VacancyDetailsReader:
                     await HHPageGuard().check_page_state(self.page, is_navigation_step=True)
                 await self._release_page()
                 failures += 1
+                if failures >= self.MAX_ATTEMPTS:
+                    raise RuntimeError(f'Не удалось загрузить подробности за {self.MAX_ATTEMPTS} попытки: {(str(error) or "таймаут").splitlines()[0][:180]}') from error
                 remaining = min(30, 2 ** min(failures, 5))
                 if self.on_retry:
-                    self.on_retry(f'вакансия {card.external_id}: восстанавливаю браузер через {remaining} с')
+                    self.on_retry(f'вакансия {card.external_id}: попытка {failures + 1}/{self.MAX_ATTEMPTS} через {remaining} с')
                 while remaining > 0:
                     self._check_stop()
                     interval = min(.25, remaining)

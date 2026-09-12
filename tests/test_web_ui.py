@@ -587,6 +587,8 @@ def _stage_button(panel, kind):
     import re
 
     match = re.search(r'<button\b[^>]*hx-post="/actions/' + kind + r'"[^>]*>', panel)
+    if kind == "collect":
+        match = re.search(r'<button\b[^>]*form="inline-search-form"[^>]*>', panel)
     assert match, f"Missing stage button: {kind}"
     return match.group()
 
@@ -598,22 +600,23 @@ def test_new_user_can_collect_but_needs_resume_for_scoring_and_applying(client):
     assert 'href="/resume">Перейти к резюме</a>' in panel
     assert panel.count('id="necessary-settings"') == 1
     assert 'resume-banner' not in panel
-    assert panel.count('data-action-id=') == 7
+    assert panel.count('data-action-id=') == 6
     assert "Начните с вашего резюме" not in panel
     assert 'aria-label="Настроить оценку вакансий"' in panel
-    assert "Собрать вакансии" in panel
+    assert "Искать вакансии" in panel
     assert "Оценить соответствие вакансий резюме" in panel
     assert "disabled" not in _stage_button(panel, "collect")
     for kind in ("score", "apply"):
         assert "disabled" in _stage_button(panel, kind)
         assert f'aria-describedby="{kind}-context"' in _stage_button(panel, kind)
-    assert "Собрать вакансии" in panel
+    assert "Искать вакансии" in panel
     assert 'hx-get="/actions/search-settings"' in panel
-    assert 'id="panel-search-query"' not in panel
+    assert 'id="panel-search-query"' in panel
     modal = client.get("/actions/search-settings").text
-    query = re.search(r'<input\b[^>]*id="panel-search-query"[^>]*>', modal)
+    query = re.search(r'<input\b[^>]*id="panel-search-query"[^>]*>', panel)
     assert query and "disabled" not in query.group()
-    assert 'label for="panel-search-query">Какую работу ищете</label>' in modal
+    assert 'label for="panel-search-query">Какую работу ищете</label>' in panel
+    assert 'name="search_query"' not in modal
     assert 'type="radio"' not in panel
 
 
@@ -645,9 +648,9 @@ def test_resume_unlocks_actions_and_explains_missing_setup(client):
         portal.call(repository.set_active_resume, resume_id)
 
     panel = client.get("/partials/status").text
-    assert "Укажите должность в окне «Настроить поиск»." in panel
+    assert "Укажите должность в карточке «Искать вакансии»." in panel
     assert "Настроить оценку вакансий" in panel
-    assert "disabled" in _stage_button(panel, "collect")
+    assert "disabled" not in _stage_button(panel, "collect")
     assert "disabled" in _stage_button(panel, "score")
     assert "disabled" not in _stage_button(panel, "apply")
 
@@ -659,7 +662,7 @@ def test_resume_unlocks_actions_and_explains_missing_setup(client):
         panel = client.get(path).text
         for kind in ("collect", "score", "apply"):
             assert "disabled" not in _stage_button(panel, kind)
-        assert "Ищем: «Python»" in panel
+        assert 'value="Python"' in panel
         assert "До 3 откликов" in panel
         assert "оценка от 85" in panel
 
@@ -676,7 +679,7 @@ def test_panel_query_edit_preserves_resume_context(client):
         portal.call(repository.set_active_resume, resume_id)
 
     modal = client.get("/actions/search-settings").text
-    assert 'value="Python"' in modal
+    assert 'value="Python"' in client.get('/partials/status').text
     assert 'hx-post="/actions/search-settings"' in modal
     assert f'name="resume_id" value="{resume_id}"' in modal
 
@@ -684,7 +687,7 @@ def test_panel_query_edit_preserves_resume_context(client):
     assert response.status_code == 200
     assert response.headers["HX-Trigger-After-Settle"] == "searchSettingsSaved"
     assert client.app.state.settings.scroller_config().max_scroll_steps_per_page == 7
-    assert "Ищем: «Backend Python»" in response.text
+    assert 'value="Backend Python"' in response.text
     assert "disabled" not in _stage_button(response.text, "collect")
     with start_blocking_portal() as portal:
         saved = portal.call(repository.get_resume, resume_id)
@@ -692,7 +695,7 @@ def test_panel_query_edit_preserves_resume_context(client):
     assert saved.context_text == "Опыт разработки на Python"
 
     response = client.post(f"/actions/resume/{resume_id}/search-query", data={"search_query": " "})
-    assert "disabled" in _stage_button(response.text, "collect")
+    assert "disabled" not in _stage_button(response.text, "collect")
     response = client.post(f"/actions/resume/{resume_id + 1}/search-query", data={"search_query": "Java"})
     assert "Активное резюме изменилось" in response.text
 
@@ -967,7 +970,6 @@ def test_selected_vacancies_start_and_redirect_to_actions(client, monkeypatch):
     ("collect", "main", TaskKind.COLLECT), ("score", "main", TaskKind.SCORE),
     ("apply", "main", TaskKind.APPLY), ("pipeline", "main", TaskKind.COLLECT),
     ("login", "main", TaskKind.LOGIN), ("resume_touch", "main", TaskKind.RESUME_TOUCH),
-    ("activity", "activity", TaskKind.ACTIVITY),
 ])
 def test_running_card_switches_play_to_stop_in_its_lane(client, action, lane, kind):
     import asyncio

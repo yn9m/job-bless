@@ -1,22 +1,8 @@
 {% from 'partials/action_settings.html' import render_sections %}
 <form class="action-settings-form" method="post" action="/actions/search-settings" hx-post="/actions/search-settings"
       hx-target="#search-dialog-content" hx-swap="innerHTML" hx-disabled-elt="find button[type='submit']" hx-disinherit="hx-disabled-elt">
-  <p class="muted">Помощник будет искать вакансии на hh.ru по этому запросу.</p>
+  <p class="muted">Параметры загрузки страниц выдачи hh.ru.</p>
   {% if panel_resume %}<input type="hidden" name="resume_id" value="{{ panel_resume.id }}">{% endif %}
-  <div class="step-query">
-    <label for="panel-search-query">Какую работу ищете</label>
-    <input id="panel-search-query" name="search_query" type="text"
-           value="{{ raw.get('search_query', panel_search_query) if raw is not none else panel_search_query }}"
-           placeholder="Например, Python-разработчик" aria-describedby="search-query-help"
-           {{ 'readonly' if tasks.is_busy }}>
-  </div>
-  <p class="muted" id="search-query-help">
-    {% if tasks.is_busy %}
-      Дождитесь завершения текущей задачи, чтобы изменить запрос.
-    {% else %}
-      Укажите должность или ключевые слова. Сохранение не запускает поиск вакансий.
-    {% endif %}
-  </p>
   <div class="error-box" id="search-save-error" role="alert" {{ 'hidden' if not error and not errors }}>
     {% if error %}<p>{{ error }}</p>{% endif %}
     {% for message in errors %}<p>{{ message }}</p>{% endfor %}

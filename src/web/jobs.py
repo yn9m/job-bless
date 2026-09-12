@@ -83,7 +83,7 @@ async def collect_job(ctx: TaskContext) -> Dict[str, Any]:
     query = (resume.search_query if resume else ctx.settings.search_query).strip()
     if not query:
         raise ValueError(
-            "Не задан поисковый запрос — укажите должность в окне «Настроить поиск»"
+            "Не задан поисковый запрос — укажите должность в карточке «Искать вакансии»"
         )
 
     scroller_config = ctx.settings.scroller_config(query=query)
@@ -129,22 +129,37 @@ async def collect_job(ctx: TaskContext) -> Dict[str, Any]:
         on_retry=ctx.log,
     )
 
-    detailed = detail_errors = 0
+    detailed = detail_errors = new_vacancies = known_vacancies = skipped_details = 0
+
+    def report_progress():
+        ctx.state.result['collect_progress'] = {
+            'pages': pages, 'new': new_vacancies, 'known': known_vacancies,
+            'skipped_details': skipped_details, 'detailed': detailed, 'detail_errors': detail_errors,
+        }
+        ctx.progress(pages)
+
+    report_progress()
     reader = VacancyDetailsReader(browser_config, limiter=ctx.limiter, should_stop=ctx.should_stop, on_retry=ctx.log)
     try:
         async with reader:
             async for item in stream:
                 if isinstance(item, PageCommitParams):
+                    existing = await ctx.repository.collection_card_state(item.cards)
                     # Commit the whole result page first. A detail failure or stop
                     # must never lose cards we have already discovered.
                     await ctx.repository.commit_page_transaction(item)
                     pages += 1
-                    ctx.log(f"страница #{item.page_number}: сохранено карточек {len(item.cards)}")
-                    ctx.progress(pages)
-                    for index, card in enumerate(item.cards, 1):
+                    new_on_page = sum((card.source, card.external_id) not in existing for card in item.cards)
+                    new_vacancies += new_on_page
+                    known_vacancies += len(item.cards) - new_on_page
+                    pending = [card for card in item.cards if not existing.get((card.source, card.external_id), False)]
+                    skipped_details += len(item.cards) - len(pending)
+                    ctx.log(f"страница #{item.page_number}: новых {new_on_page}, уже в базе {len(item.cards) - new_on_page}; подробностей к загрузке {len(pending)}")
+                    report_progress()
+                    for index, card in enumerate(pending, 1):
                         if ctx.should_stop():
                             break
-                        ctx.log(f"подробности {index}/{len(item.cards)} на странице {pages}: {card.title}")
+                        ctx.log(f"подробности {index}/{len(pending)} на странице {pages}: {card.title}")
                         try:
                             details = await reader.read(card)
                         except HHInterventionRequired:
@@ -156,6 +171,7 @@ async def collect_job(ctx: TaskContext) -> Dict[str, Any]:
                         else:
                             detailed += 1
                         await ctx.repository.save_vacancy_details(card.source, card.external_id, details)
+                        report_progress()
                 elif isinstance(item, CollectionSummary):
                     summary = item
 
@@ -187,9 +203,13 @@ async def collect_job(ctx: TaskContext) -> Dict[str, Any]:
         "reason": summary.completion_reason if summary else "",
         "detailed": detailed,
         "detail_errors": detail_errors,
+        "new": new_vacancies,
+        "known": known_vacancies,
+        "skipped_details": skipped_details,
+        "collect_progress": ctx.state.result['collect_progress'],
         "rate_limit": ctx.limiter.stats.as_dict(),
     }
-    ctx.log(f"собрано уникальных вакансий: {result['unique']} со страниц: {result['pages']}; подробностей: {detailed}, ошибок чтения: {detail_errors}")
+    ctx.log(f"новых вакансий: {new_vacancies}, уже в базе: {known_vacancies}; страниц: {result['pages']}; подробностей: {detailed}, пропущено сохранённых: {skipped_details}, ошибок чтения: {detail_errors}")
     return result
 
 

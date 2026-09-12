@@ -1,10 +1,9 @@
 """Interval scheduler.
 
-Three independent cycles, because they serve different purposes and run at
+Two independent cycles, because they serve different purposes and run at
 different rhythms:
 
 * the pipeline (collect -> score -> apply) in the main lane;
-* activity browsing in its own lane, so it overlaps with the pipeline;
 * the resume refresh, which hh.ru only allows every few hours.
 """
 
@@ -15,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
 
 from src.db.models import TaskKind
-from src.web.jobs import activity_job, pipeline_job, resume_touch_job
-from src.web.tasks import LANE_ACTIVITY, LANE_MAIN, TaskBusyError, TaskManager
+from src.web.jobs import pipeline_job, resume_touch_job
+from src.web.tasks import LANE_MAIN, TaskBusyError, TaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,15 +51,6 @@ class Scheduler:
                 job=pipeline_job,
                 enabled_key="schedule.enabled",
                 interval_key="schedule.interval_minutes",
-            ),
-            ScheduleEntry(
-                name="activity",
-                title="Активность",
-                lane=LANE_ACTIVITY,
-                kind=TaskKind.ACTIVITY,
-                job=activity_job,
-                enabled_key="schedule.activity_enabled",
-                interval_key="schedule.activity_interval_minutes",
             ),
             ScheduleEntry(
                 name="resume_touch",

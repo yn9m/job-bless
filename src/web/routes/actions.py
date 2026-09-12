@@ -51,17 +51,24 @@ RUNNABLE_JOBS = {
     "resume_touch": (TaskKind.RESUME_TOUCH, "resume_touch_job", LANE_MAIN),
     "login": (TaskKind.LOGIN, "login_job", LANE_MAIN),
     # Runs alongside everything else, in its own tab.
-    "activity": (TaskKind.ACTIVITY, "activity_job", LANE_ACTIVITY),
     # No browser involved: runs in its own lane, parallel to everything.
     "profile": (TaskKind.PROFILE, "profile_job", LANE_PROFILE),
 }
 
 
-async def _start(request: Request, kind: TaskKind, job, params=None, lane: str = LANE_MAIN) -> HTMLResponse:
+async def _start(request: Request, kind: TaskKind, job, params=None, lane: str = LANE_MAIN, search_raw=None) -> HTMLResponse:
     if kind == TaskKind.ACTIVITY and not await hh_login_confirmed(request.app.state.repository):
         return await _panel(request, error="Для фонового просмотра сначала войдите в hh.ru.")
     try:
-        await request.app.state.tasks.start(kind, job, params=params or {}, lane=lane)
+        manager = request.app.state.tasks
+        if search_raw is not None:
+            async with manager._start_lock:
+                error = await _save_inline_search(request, search_raw)
+                if error:
+                    return await _panel(request, error=error)
+                await manager._start(kind, job, params=params or {}, trigger='manual', lane=lane)
+        else:
+            await manager.start(kind, job, params=params or {}, lane=lane)
     except TaskBusyError as e:
         return await _panel(request, error=str(e))
     except Exception as e:  # noqa: BLE001
@@ -88,7 +95,9 @@ async def start_selected(request: Request, kind: str = Form("collect")) -> HTMLR
 
 @router.post("/collect", response_class=HTMLResponse)
 async def start_collect(request: Request) -> HTMLResponse:
-    return await _start(request, TaskKind.COLLECT, jobs.collect_job)
+    raw = {key: str(value) for key, value in (await request.form()).multi_items()}
+    return await _start(request, TaskKind.COLLECT, jobs.collect_job,
+                        search_raw=raw if 'search_query' in raw else None)
 
 
 @router.post("/score", response_class=HTMLResponse)
@@ -154,11 +163,6 @@ async def logout_hh(request: Request) -> HTMLResponse:
             await state.repository.save_settings({"hh.login_required": "true"})
             state.tasks.publish({"type": "hh_logged_out"})
     return await _panel(request)
-
-
-@router.post("/activity", response_class=HTMLResponse)
-async def start_activity(request: Request) -> HTMLResponse:
-    return await _start(request, TaskKind.ACTIVITY, jobs.activity_job, lane=LANE_ACTIVITY)
 
 
 @router.post("/stop", response_class=HTMLResponse)
@@ -229,6 +233,32 @@ async def _search_settings(request: Request, error: str = "", raw=None, errors=N
     )
 
 
+async def _save_inline_search(request: Request, raw: dict) -> str:
+    """Caller holds the start lock so changing a resume or starting cannot race."""
+    state = request.app.state
+    resume = await state.repository.get_active_resume()
+    if raw.get('resume_id', '') != (str(resume.id) if resume else ''):
+        return 'Активное резюме изменилось. Обновите страницу и повторите ввод.'
+    if state.tasks.is_busy:
+        return 'Дождитесь завершения текущей задачи, чтобы изменить запрос.'
+    query = raw.get('search_query', '').strip()
+    if not query:
+        return 'Укажите, какую работу ищете.'
+    if resume:
+        await state.repository.update_resume_fields(resume.id, query, resume.context_text)
+    else:
+        await state.settings.save_search_query(query)
+    return ''
+
+
+@router.post('/search-query', response_class=HTMLResponse)
+async def save_inline_search(request: Request) -> HTMLResponse:
+    raw = {key: str(value) for key, value in (await request.form()).multi_items()}
+    async with request.app.state.tasks._start_lock:
+        error = await _save_inline_search(request, raw)
+    return request.app.state.templates.TemplateResponse(request, 'partials/search_query_feedback.html', {'error': error})
+
+
 @router.get("/search-settings", response_class=HTMLResponse)
 async def search_settings(request: Request) -> HTMLResponse:
     return await _search_settings(request)
@@ -239,7 +269,7 @@ async def save_search_settings(request: Request) -> HTMLResponse:
     raw = {key: str(value) for key, value in (await request.form()).multi_items()}
     repository = request.app.state.repository
     resume = await repository.get_active_resume()
-    query = raw.get("search_query", "").strip()
+    query = raw.get("search_query", resume.search_query if resume else request.app.state.settings.search_query).strip()
     errors = []
     expected_resume = str(resume.id) if resume else ""
     current_query = resume.search_query if resume else request.app.state.settings.search_query
@@ -426,7 +456,7 @@ async def action_settings(request: Request, kind: str) -> HTMLResponse:
 
 
 async def _action_settings(request: Request, kind: str, raw=None, errors=None) -> HTMLResponse:
-    if kind not in {"score", "profile", "activity", "resume_touch", "llm"}:
+    if kind not in {"score", "profile", "resume_touch", "llm"}:
         raise HTTPException(status_code=404)
     template = "partials/llm_settings.html" if kind == "llm" else "partials/action_settings.html"
     return request.app.state.templates.TemplateResponse(request, template, {
@@ -439,13 +469,13 @@ async def _action_settings(request: Request, kind: str, raw=None, errors=None) -
 
 @router.post("/{kind}-settings", response_class=HTMLResponse)
 async def save_action_settings(request: Request, kind: str) -> HTMLResponse:
-    if kind not in {"score", "profile", "activity", "resume_touch", "llm"}:
+    if kind not in {"score", "profile", "resume_touch", "llm"}:
         raise HTTPException(status_code=404)
     raw = {key: str(value) for key, value in (await request.form()).multi_items()}
     errors = await request.app.state.settings.save(raw, keys=ACTION_KEYS[kind])
     if errors:
         return await _action_settings(request, kind, raw=raw, errors=errors)
-    if kind in {"activity", "resume_touch"}:
+    if kind == "resume_touch":
         request.app.state.scheduler.reschedule()
     if kind == "llm":
         if not request.app.state.aistudio.selected:

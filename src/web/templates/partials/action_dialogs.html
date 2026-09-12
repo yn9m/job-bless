@@ -1,4 +1,4 @@
-{% for kind, title in [('llm', 'Настроить нейросеть'), ('score', 'Настроить оценку вакансий'), ('profile', 'Настроить описание опыта'), ('activity', 'Настроить фоновый просмотр'), ('resume_touch', 'Настроить поднятие резюме')] %}
+{% for kind, title in [('llm', 'Настроить нейросеть'), ('score', 'Настроить оценку вакансий'), ('profile', 'Настроить описание опыта'), ('resume_touch', 'Настроить поднятие резюме')] %}
 <dialog class="pipeline-dialog apply-dialog" id="{{ kind }}-dialog" aria-labelledby="{{ kind }}-dialog-title">
   <div class="dialog-heading">
     <h2 id="{{ kind }}-dialog-title">{{ title }}</h2>
