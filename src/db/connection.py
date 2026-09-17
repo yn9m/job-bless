@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS vacancy_applications (
     response_text TEXT NOT NULL DEFAULT '',
     error_message TEXT NOT NULL DEFAULT '',
     cover_letter TEXT NOT NULL DEFAULT '',
+    chat_message TEXT NOT NULL DEFAULT '',
+    chat_status TEXT NOT NULL DEFAULT '',
+    chat_error TEXT NOT NULL DEFAULT '',
     CONSTRAINT unique_vacancy_app UNIQUE (external_id)
 );
 
@@ -253,6 +256,9 @@ CREATE TABLE IF NOT EXISTS vacancy_applications (
     response_text TEXT NOT NULL DEFAULT '',
     error_message TEXT NOT NULL DEFAULT '',
     cover_letter TEXT NOT NULL DEFAULT '',
+    chat_message TEXT NOT NULL DEFAULT '',
+    chat_status TEXT NOT NULL DEFAULT '',
+    chat_error TEXT NOT NULL DEFAULT '',
     CONSTRAINT unique_vacancy_app UNIQUE (external_id)
 );
 
@@ -352,6 +358,9 @@ ADDED_COLUMNS = (
     ("resumes", "education_text", "TEXT NOT NULL DEFAULT ''"),
     ("resumes", "certificates_json", "TEXT NOT NULL DEFAULT '[]'"),
     ("vacancy_applications", "cover_letter", "TEXT NOT NULL DEFAULT ''"),
+    ("vacancy_applications", "chat_message", "TEXT NOT NULL DEFAULT ''"),
+    ("vacancy_applications", "chat_status", "TEXT NOT NULL DEFAULT ''"),
+    ("vacancy_applications", "chat_error", "TEXT NOT NULL DEFAULT ''"),
     ("resumes", "search_query", "TEXT NOT NULL DEFAULT ''"),
     ("resumes", "context_text", "TEXT NOT NULL DEFAULT ''"),
     ("resumes", "profile_summary", "TEXT NOT NULL DEFAULT ''"),

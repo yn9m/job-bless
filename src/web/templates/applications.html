@@ -26,6 +26,9 @@
         {% if row.response_text %}<details class="vacancy-details"><summary>Комментарий к отклику</summary><p class="raw-text">{{ row.response_text }}</p></details>{% endif %}
         {% if row.verdict %}<details class="vacancy-details"><summary>Почему такая оценка</summary><p>{{ row.verdict }}</p></details>{% endif %}
         {% if row.cover_letter %}<details class="vacancy-details"><summary>Сопроводительное письмо <span class="muted">· {{ row.cover_letter | length }} симв.</span></summary><p class="raw-text">{{ row.cover_letter }}</p></details>{% endif %}
+        {% if row.chat_status == 'sent' %}<details class="vacancy-details"><summary>Сообщение работодателю отправлено</summary><p class="raw-text">{{ row.chat_message }}</p></details>{% endif %}
+        {% if row.chat_status == 'unavailable' %}<p class="history-message">Чат недоступен: {{ row.chat_error }}</p>{% endif %}
+        {% if row.chat_status in ('failed', 'unknown') %}<p class="history-message is-error">Сообщение работодателю не подтверждено: {{ row.chat_error }}</p>{% endif %}
       </div>
       <div class="history-status">
         <span class="badge {{ row.status }}">{{ statuses.get(row.status, row.status) }}</span>

@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, List
 from playwright.async_api import Page
 
 from src.applier.cover_letter import CoverLetterError, CoverLetterWriter
+from src.applier.chat import HHChat
 from src.llm.base import LLMClient
 from src.db.models import VacancyApplication, ApplicationStatus
 
@@ -82,6 +83,7 @@ class HHAutoApplier:
         cover_letter_writer: Optional["CoverLetterWriter"] = None,
         cover_letter_when: str = "required",
         cover_letter_fallback: str = "",
+        chat: Optional[HHChat] = None,
     ):
         self.llm_client = llm_client
         self.resume_text = resume_text
@@ -90,6 +92,7 @@ class HHAutoApplier:
         self.cover_letter_writer = cover_letter_writer
         self.cover_letter_when = cover_letter_when
         self.cover_letter_fallback = cover_letter_fallback
+        self.chat = chat or HHChat()
 
     async def _evaluate_vacancy_match(self, page: Page, external_id: str) -> tuple[bool, int, str]:
         if not self.llm_client or not self.resume_text.strip():
@@ -288,18 +291,24 @@ class HHAutoApplier:
                 elem = await page.query_selector(sel)
                 if elem and await elem.is_visible():
                     logger.info(f"Successfully applied to vacancy {external_id}!")
-                    return VacancyApplication(
-                        vacancy_id=vacancy_id,
-                        external_id=external_id,
-                        vacancy_url=vacancy_url,
-                        status=ApplicationStatus.APPLIED,
-                        response_text=_success_note(letter_text),
-                        cover_letter=letter_text,
+                    return await self._successful_application(
+                        page, vacancy_id, external_id, vacancy_url, letter_text
                     )
             except Exception:
                 pass
 
         logger.info(f"Applied to vacancy {external_id} (direct response registered).")
+        return await self._successful_application(
+            page, vacancy_id, external_id, vacancy_url, letter_text
+        )
+
+    async def _successful_application(
+        self, page: Page, vacancy_id: Optional[int], external_id: str,
+        vacancy_url: str, letter_text: str,
+    ) -> VacancyApplication:
+        chat_result = await self.chat.send_after_apply(page, vacancy_url)
+        logger.info("Chat follow-up for %s: %s%s", external_id, chat_result.status,
+                    f" ({chat_result.error})" if chat_result.error else "")
         return VacancyApplication(
             vacancy_id=vacancy_id,
             external_id=external_id,
@@ -307,6 +316,9 @@ class HHAutoApplier:
             status=ApplicationStatus.APPLIED,
             response_text=_success_note(letter_text),
             cover_letter=letter_text,
+            chat_message=chat_result.message,
+            chat_status=chat_result.status,
+            chat_error=chat_result.error,
         )
 
     # --- cover letter ----------------------------------------------------

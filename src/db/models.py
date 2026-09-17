@@ -175,6 +175,9 @@ class VacancyApplication:
     error_message: str = ""
     # Kept apart from response_text so the UI can show what was actually sent.
     cover_letter: str = ""
+    chat_message: str = ""
+    chat_status: str = ""
+    chat_error: str = ""
     applied_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

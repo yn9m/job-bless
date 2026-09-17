@@ -339,6 +339,10 @@ async def apply_job(ctx: TaskContext, vacancy_ids: Optional[Sequence[int]] = Non
                 if result.status == ApplicationStatus.APPLIED:
                     stats["applied"] += 1
                     ctx.log("  → отклик отправлен")
+                    if result.chat_status == "sent":
+                        ctx.log("  → сообщение работодателю отправлено")
+                    elif result.chat_status:
+                        ctx.log(f"  → чат: {result.chat_error}")
                 elif result.status == ApplicationStatus.SKIPPED_QUESTIONS:
                     stats["skipped"] += 1
                     ctx.log("  → пропущено: требуются ответы на вопросы работодателя")

@@ -328,39 +328,47 @@ class DatabaseRepository:
             query = """
                 INSERT INTO vacancy_applications (
                     vacancy_id, external_id, vacancy_url, status, applied_at, response_text,
-                    error_message, cover_letter
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    error_message, cover_letter, chat_message, chat_status, chat_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (external_id) DO UPDATE SET
                     status = excluded.status,
                     applied_at = excluded.applied_at,
                     response_text = excluded.response_text,
                     error_message = excluded.error_message,
-                    cover_letter = excluded.cover_letter;
+                    cover_letter = excluded.cover_letter,
+                    chat_message = excluded.chat_message,
+                    chat_status = excluded.chat_status,
+                    chat_error = excluded.chat_error;
             """
             await self.connection.execute(
                 query,
                 (app.vacancy_id, app.external_id, app.vacancy_url, str(app.status.value), applied_str,
-                 app.response_text, app.error_message, app.cover_letter)
+                 app.response_text, app.error_message, app.cover_letter,
+                 app.chat_message, app.chat_status, app.chat_error)
             )
             await self.connection.commit()
         else:
             query = """
                 INSERT INTO vacancy_applications (
                     vacancy_id, external_id, vacancy_url, status, applied_at, response_text,
-                    error_message, cover_letter
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    error_message, cover_letter, chat_message, chat_status, chat_error
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (external_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     applied_at = EXCLUDED.applied_at,
                     response_text = EXCLUDED.response_text,
                     error_message = EXCLUDED.error_message,
-                    cover_letter = EXCLUDED.cover_letter;
+                    cover_letter = EXCLUDED.cover_letter,
+                    chat_message = EXCLUDED.chat_message,
+                    chat_status = EXCLUDED.chat_status,
+                    chat_error = EXCLUDED.chat_error;
             """
             async with self.connection.acquire() as conn:
                 await conn.execute(
                     query,
                     app.vacancy_id, app.external_id, app.vacancy_url, str(app.status.value),
-                    app.applied_at, app.response_text, app.error_message, app.cover_letter
+                    app.applied_at, app.response_text, app.error_message, app.cover_letter,
+                    app.chat_message, app.chat_status, app.chat_error
                 )
 
     async def get_unapplied_vacancies(self, limit: int = 50) -> list[dict]:
@@ -791,7 +799,8 @@ class DatabaseRepository:
         params: List[Any] = [status] if status else []
         query = f"""
             SELECT a.id, a.external_id, a.vacancy_url, a.status, a.applied_at, a.response_text,
-                   a.error_message, a.cover_letter, v.title, v.company_name, v.salary_text,
+                   a.error_message, a.cover_letter, a.chat_message, a.chat_status,
+                   a.chat_error, v.title, v.company_name, v.salary_text,
                    v.city, s.score, s.verdict
             FROM vacancy_applications a
             LEFT JOIN vacancies v ON v.external_id = a.external_id
